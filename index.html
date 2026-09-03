@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>INNO Ledger — 측정 계획·이력</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><radialGradient id='bg' cx='0.5' cy='0.42' r='0.72'><stop offset='0' stop-color='%23103833'/><stop offset='1' stop-color='%23070F0D'/></radialGradient><linearGradient id='sh' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%236CF2C0'/><stop offset='1' stop-color='%2312D3A6'/></linearGradient><radialGradient id='co' cx='0.44' cy='0.4' r='0.62'><stop offset='0' stop-color='%23ffffff'/><stop offset='0.4' stop-color='%2386FFD9'/><stop offset='1' stop-color='%232FF0B0'/></radialGradient></defs><rect width='100' height='100' rx='24' fill='url(%23bg)'/><circle cx='50' cy='50' r='31' fill='none' stroke='%2322EEB6' stroke-opacity='0.55' stroke-width='2'/><circle cx='50' cy='50' r='27' fill='url(%23sh)'/><circle cx='50' cy='50' r='13' fill='url(%23co)'/></svg>">
+<meta name="color-scheme" content="light dark">
+<script>/* theme boot (FOUC 방지: 첫 페인트 전 적용) */
+(function(){try{var t=localStorage.getItem("ledger_theme");
+if(t!=="light"&&t!=="dark"){t=(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light";}
+document.documentElement.setAttribute("data-theme",t);}catch(e){document.documentElement.setAttribute("data-theme","light");}})();</script>
+<style>
+/* ============ INNO Ledger — 측정 계획·이력 (design tokens: INNO NanoLab과 공유) ============ */
+:root{
+  --bg:#F8FAFC; --card:#FFFFFF; --line:#E2E8F0; --line2:#CBD5E1;
+  --ink:#0F172A; --ink2:#334155; --sub:#475569; --muted:#64748B;
+  --primary:#0D9488; --primary-strong:#0F766E; --primary-soft:#CCFBF1;
+  --ok:#059669; --ok-soft:#DCFCE7; --warn:#D97706; --warn-soft:#FEF3C7;
+  --risk:#DC2626; --risk-soft:#FEE2E2; --chip:#F1F5F9;
+  --amber-soft:#FEF9C3; --green-soft:#DCFCE7; --blue-soft:#DBEAFE; --orange-soft:#FFEDD5;
+  --shadow:0 1px 2px rgba(15,23,42,.06),0 4px 12px rgba(15,23,42,.05);
+  --r:12px; --r-s:8px;
+}
+html[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0B1220; --card:#111A2E; --line:#1E293B; --line2:#334155;
+  --ink:#E5EAF2; --ink2:#CBD5E1; --sub:#94A3B8; --muted:#8497AE;
+  --primary:#2DD4BF; --primary-strong:#14B8A6; --primary-soft:#0F2E2A;
+  --ok:#10B981; --ok-soft:#0F3227; --warn:#F59E0B; --warn-soft:#3A2A12;
+  --risk:#F87171; --risk-soft:#3B1A1A; --chip:#1B2540;
+  --amber-soft:#3A320F; --green-soft:#0F3227; --blue-soft:#17274A; --orange-soft:#3A230F;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 16px rgba(0,0,0,.35);
+  --field:#0E1728; --hover:#182238; --rowhover:#152036;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:700}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:var(--ink)}
+a{color:var(--primary);text-decoration:none}
+.mono{font-family:ui-monospace,Consolas,'Cascadia Mono',monospace}
+::selection{background:var(--primary-soft)}
+
+/* ---------- shell ---------- */
+#app{max-width:1560px;margin:0 auto;padding:0 18px 60px;display:none}
+#app.on{display:block}
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 2px 10px;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);z-index:20;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto}
+.brand .logo{font-size:20px;font-weight:800;letter-spacing:-.2px}
+.brand .logo b{color:var(--primary)}
+.brand .tag{font-size:11.5px;color:var(--muted);padding-top:2px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--chip);color:var(--sub);font-size:12px;font-weight:600;white-space:nowrap}
+.chip.dot::before{content:"";width:7px;height:7px;border-radius:999px;background:var(--muted)}
+.chip.dot.on::before{background:var(--ok)}
+.chip.dot.err::before{background:var(--risk)}
+.chip.dot.busy::before{background:var(--warn);animation:pulse 1.1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.iconbtn{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:var(--r-s);width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;font-size:15px}
+.iconbtn:hover{background:var(--hover,var(--chip))}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:var(--r-s);padding:8px 14px;font-weight:600;font-size:13px}
+.btn:hover{border-color:var(--line2)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-strong)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--risk);border-color:var(--risk-soft)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:5px 10px;font-size:12px}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:4px;padding:10px 0 0;flex-wrap:wrap}
+.tabs button{border:none;background:transparent;color:var(--muted);font-weight:700;font-size:13.5px;padding:9px 14px;border-radius:var(--r-s) var(--r-s) 0 0;border-bottom:2px solid transparent}
+.tabs button.on{color:var(--primary);border-bottom-color:var(--primary)}
+.tabs button:hover:not(.on){color:var(--ink2)}
+.tabs .spacer{flex:1}
+.tabs .soon{opacity:.5}
+.panel{display:none;padding:18px 2px 0}
+.panel.on{display:block}
+
+/* ---------- card / table ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px}
+.card+.card{margin-top:14px}
+.card h3{font-size:14px}
+.card .hint{color:var(--muted);font-size:12.5px;margin-top:2px}
+.rowbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.rowbar .spacer{flex:1}
+table.grid{width:100%;border-collapse:collapse;font-size:13px}
+table.grid th{text-align:left;color:var(--muted);font-weight:700;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid var(--line)}
+table.grid td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.grid tr:hover td{background:var(--rowhover,var(--chip))}
+table.grid tr:last-child td{border-bottom:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+.badge.core{background:var(--blue-soft);color:#1D4ED8}
+.badge.shell{background:var(--amber-soft);color:#B45309}
+.badge.other{background:var(--chip);color:var(--sub)}
+.formula{font-family:ui-monospace,Consolas,'Cascadia Mono',monospace;font-size:12.5px}
+.muted{color:var(--muted)}
+.empty{padding:30px 10px;text-align:center;color:var(--muted);font-size:13px}
+.empty b{color:var(--ink2);display:block;margin-bottom:4px;font-size:14px}
+
+/* ---------- login gate ---------- */
+#loginGate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+#loginGate.hidden{display:none}
+.gatecard{max-width:420px;width:100%;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:34px 30px;text-align:center}
+.gatecard .orb{width:56px;height:56px;margin:0 auto 16px;border-radius:16px;overflow:hidden}
+.gatecard h1{font-size:21px;letter-spacing:-.2px}
+.gatecard h1 b{color:var(--primary)}
+.gatecard p{color:var(--muted);font-size:13px;margin:10px 0 22px;line-height:1.6}
+.gbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:11px 16px;border-radius:var(--r-s);border:1px solid var(--line2);background:var(--card);font-weight:700;font-size:14px;color:var(--ink)}
+.gbtn:hover{background:var(--hover,var(--chip))}
+.gbtn svg{width:18px;height:18px}
+#gateErr{margin-top:14px;font-size:12.5px;color:var(--risk);display:none}
+
+/* ---------- forms ---------- */
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:11.5px;font-weight:700;color:var(--sub)}
+input[type=text],input[type=number],select,textarea{
+  border:1px solid var(--line2);background:var(--field,var(--card));border-radius:var(--r-s);padding:8px 10px;font-size:13px;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary-soft);border-color:var(--primary)}
+.grid-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.presetform{display:none;margin-top:12px;padding:14px;border:1px dashed var(--line2);border-radius:var(--r-s);background:var(--chip)}
+.presetform.on{display:block}
+.seedbadge{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 7px;margin-left:6px}
+
+/* ---------- capacity gauge ---------- */
+.gauge{display:flex;align-items:center;gap:8px}
+.gaugebar{width:76px;height:6px;border-radius:999px;background:var(--chip);overflow:hidden}
+.gaugebar i{display:block;height:100%;background:var(--primary);width:0%}
+.gaugetxt{font-size:11px;color:var(--muted);white-space:nowrap}
+
+/* ---------- toast ---------- */
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25);display:none;z-index:100}
+
+/* ---------- soon panel ---------- */
+.soonpanel{padding:50px 20px;text-align:center;color:var(--muted)}
+.soonpanel .ph{font-size:34px;margin-bottom:10px}
+.soonpanel b{color:var(--ink2);font-size:15px;display:block;margin-bottom:6px}
+
+.foot{margin-top:34px;padding:16px 2px 4px;color:var(--muted);font-size:11.5px;border-top:1px solid var(--line);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+/* ---------- measType chip row (축 전환) ---------- */
+.measchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.measchip{border:1px solid var(--line);background:var(--card);color:var(--sub);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:7px}
+.measchip:hover{border-color:var(--line2)}
+.measchip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.measchip .n{font-size:10.5px;opacity:.85;background:rgba(127,127,127,.18);border-radius:999px;padding:0 6px}
+.measchip.on .n{background:rgba(255,255,255,.25)}
+
+/* ---------- matrix grid ---------- */
+.matrixscroll{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:var(--r-s)}
+table.matrix{border-collapse:separate;border-spacing:0;font-size:12.5px;min-width:100%}
+table.matrix thead th{position:sticky;top:0;background:var(--card);z-index:3;border-bottom:1px solid var(--line);padding:8px 8px;text-align:left;white-space:nowrap;font-size:11px;color:var(--muted);font-weight:700}
+table.matrix thead th.colhead{text-align:center;min-width:96px;max-width:120px;white-space:normal;line-height:1.3;cursor:default}
+table.matrix thead th.corner{position:sticky;left:0;top:0;z-index:5;background:var(--card)}
+table.matrix tbody th.rowhead{position:sticky;left:0;background:var(--card);z-index:2;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600}
+table.matrix tbody tr:hover th.rowhead,table.matrix tbody tr:hover td{background:var(--rowhover,var(--chip))}
+table.matrix td{border-bottom:1px solid var(--line);text-align:center;padding:6px;vertical-align:middle}
+table.matrix td.cellslot{cursor:pointer}
+.rowchk{margin-right:8px}
+.rowlabel{font-weight:700}
+.rowsub{color:var(--muted);font-size:11px;margin-top:1px}
+.cellbadge{display:inline-flex;align-items:center;justify-content:center;min-width:52px;padding:4px 8px;border-radius:7px;font-size:11px;font-weight:700;border:1px solid transparent}
+.cellbadge.none{background:transparent;color:var(--line2);border:1px dashed var(--line2)}
+.cellbadge.planned{background:var(--blue-soft);color:#1D4ED8}
+.cellbadge.ticket{background:var(--chip);color:var(--sub);border-color:var(--line2)}
+.cellbadge.pending{background:var(--amber-soft);color:#B45309}
+.cellbadge.success{background:var(--green-soft);color:#047857}
+.cellbadge.retry{background:var(--risk-soft);color:#B91C1C}
+td.cellslot:hover .cellbadge{filter:brightness(0.96)}
+html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
+.addcolbtn{border:1px dashed var(--line2);background:transparent;color:var(--muted);border-radius:var(--r-s);padding:6px 12px;font-size:12px;font-weight:700}
+.addcolbtn:hover{color:var(--primary);border-color:var(--primary)}
+
+/* ---------- popover / modal ---------- */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.35);display:none;align-items:center;justify-content:center;z-index:200;padding:20px}
+.overlay.on{display:flex}
+.modalcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 20px 60px rgba(0,0,0,.25);padding:20px;width:100%;max-width:420px;max-height:88vh;overflow:auto}
+.modalcard.wide{max-width:760px}
+.modalcard h3{font-size:15px;margin-bottom:4px}
+.modalcard .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+.modalcard .rowbar{margin-top:16px;margin-bottom:0}
+
+/* ---------- templates ---------- */
+.tpl-card{border:1px solid var(--line);border-radius:var(--r-s);padding:14px;margin-bottom:10px}
+.tpl-card .tplname{font-weight:700;font-size:14px}
+.tpl-card .tplmeta{color:var(--muted);font-size:12px;margin-top:2px}
+.tpl-rows{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.tpl-row{display:grid;grid-template-columns:1.2fr 1fr 1fr .8fr 1fr auto;gap:8px;align-items:center;margin-bottom:6px}
+.tpl-row .rm{border:none;background:transparent;color:var(--muted);font-size:15px}
+.tpl-row .rm:hover{color:var(--risk)}
+.tpl-editor{display:none;margin-top:12px}
+.tpl-editor.on{display:block}
+</style>
+</head>
+<body>
+
+<!-- ============ 로그인 게이트 ============ -->
+<div id="loginGate">
+  <div class="gatecard">
+    <div class="orb"><svg viewBox="0 0 100 100" width="56" height="56"><defs><radialGradient id="bg2" cx="0.5" cy="0.42" r="0.72"><stop offset="0" stop-color="#103833"/><stop offset="1" stop-color="#070F0D"/></radialGradient><linearGradient id="sh2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6CF2C0"/><stop offset="1" stop-color="#12D3A6"/></linearGradient><radialGradient id="co2" cx="0.44" cy="0.4" r="0.62"><stop offset="0" stop-color="#ffffff"/><stop offset="0.4" stop-color="#86FFD9"/><stop offset="1" stop-color="#2FF0B0"/></radialGradient></defs><rect width="100" height="100" rx="24" fill="url(#bg2)"/><circle cx="50" cy="50" r="31" fill="none" stroke="#22EEB6" stroke-opacity="0.55" stroke-width="2"/><circle cx="50" cy="50" r="27" fill="url(#sh2)"/><circle cx="50" cy="50" r="13" fill="url(#co2)"/></svg></div>
+    <h1>INNO <b>Ledger</b></h1>
+    <p>측정 계획·커버리지·보정 게이트.<br>INNO NanoLab과 같은 계정으로 로그인하면<br>합성 기록(lot)을 그대로 불러옵니다.</p>
+    <button class="gbtn" id="btnGoogleLogin">
+      <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 15.6 3 8.4 7.7 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 36.3 26.7 37 24 37c-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C8.4 40.3 15.6 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.2 5.2C40.9 36 44 30.5 44 24c0-1.4-.1-2.4-.4-3.5z"/></svg>
+      Google 계정으로 로그인
+    </button>
+    <div id="gateErr"></div>
+  </div>
+</div>
+
+<!-- ============ 앱 셸 ============ -->
+<div id="app">
+  <div class="topbar">
+    <div class="brand">
+      <span class="logo">INNO <b>Ledger</b></span>
+      <span class="tag">측정 계획 · 이력 · 보정 게이트 — Phase 2</span>
+    </div>
+    <div class="gauge" title="Firestore 프로젝트 inno-nanoil 공유 용량 (NanoLab과 합산)">
+      <span class="gaugetxt" id="gaugeTxt">저장공간 — Phase 4에서 활성화</span>
+      <div class="gaugebar"><i id="gaugeBar"></i></div>
+    </div>
+    <span class="chip dot" id="chipSync">연결 대기</span>
+    <span class="chip" id="chipUser">—</span>
+    <button class="iconbtn" id="btnTheme" title="라이트/다크 전환">◐</button>
+    <button class="iconbtn" id="btnLogout" title="로그아웃">⎋</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn on" data-tab="matrix">매트릭스</button>
+    <button class="tab-btn" data-tab="templates">계획 템플릿</button>
+    <button class="tab-btn" data-tab="presets">프리셋</button>
+    <button class="tab-btn soon" data-tab="calib">보정</button>
+    <button class="tab-btn soon" data-tab="dashboard">대시보드</button>
+    <span class="spacer"></span>
+    <button class="tab-btn" data-tab="settings">설정</button>
+  </div>
+
+  <!-- ---- 매트릭스 ---- -->
+  <div class="panel on" id="panel-matrix">
+    <div class="card">
+      <div id="measChips" class="measchips"></div>
+      <div class="rowbar">
+        <input type="text" id="lotSearch" placeholder="검색: 이름 · 조성 · 그룹" style="width:220px">
+        <span class="hint" id="lotCount"></span>
+        <span class="spacer"></span>
+        <span class="hint" id="selCount"></span>
+        <button class="btn sm" id="btnApplyTpl" disabled>선택 lot에 템플릿 적용</button>
+        <button class="addcolbtn" id="btnAddCol">+ 조합 추가</button>
+      </div>
+      <div class="hint" id="measSummary" style="margin-bottom:10px"></div>
+      <div id="matrixWrap"></div>
+    </div>
+  </div>
+
+  <!-- ---- 계획 템플릿 ---- -->
+  <div class="panel" id="panel-templates">
+    <div class="card">
+      <div class="rowbar">
+        <h3>계획 체크리스트 템플릿</h3>
+        <span class="hint">샘플에 적용하면 선택한 lot마다 셀이 한 번에 생성됩니다.</span>
+        <span class="spacer"></span>
+        <button class="btn sm primary" id="btnNewTpl">+ 새 템플릿</button>
+      </div>
+      <div id="tplEditor" class="tpl-editor"></div>
+      <div id="tplListWrap"></div>
+    </div>
+  </div>
+
+  <!-- ---- 프리셋 ---- -->
+  <div class="panel" id="panel-presets">
+    <div class="card">
+      <div class="rowbar">
+        <h3>측정종류</h3>
+        <span class="hint">INNO Optics 등록 10종 시드. gateSpec(자동 판정 기준)은 Phase 5에서 채워집니다.</span>
+        <span class="spacer"></span>
+      </div>
+      <div id="measTableWrap"></div>
+    </div>
+    <div class="card">
+      <div class="rowbar">
+        <h3>여기 구성 (Excitation preset)</h3>
+        <span class="spacer"></span>
+        <button class="btn sm primary" id="btnAddEx">+ 추가</button>
+      </div>
+      <div class="hint" style="margin-bottom:10px">λex를 숫자로 직접 입력하지 않고 이름 붙인 슬롯으로 관리합니다 — "1064" / "1064.0" / "1063.8"이 서로 다른 셀로 갈라지는 것을 막습니다.</div>
+      <div id="exForm" class="presetform"></div>
+      <div id="exTableWrap"></div>
+    </div>
+    <div class="card">
+      <div class="rowbar">
+        <h3>검출 채널 (Detection preset)</h3>
+        <span class="spacer"></span>
+        <button class="btn sm primary" id="btnAddEm">+ 추가</button>
+      </div>
+      <div id="emForm" class="presetform"></div>
+      <div id="emTableWrap"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-calib"><div class="soonpanel"><div class="ph">🔬</div><b>보정 세션 · 렌즈 목록 연동</b>Phase 3에서 제공됩니다 (INNO Prism의 렌즈 목록을 그대로 공유).</div></div>
+  <div class="panel" id="panel-dashboard"><div class="soonpanel"><div class="ph">📊</div><b>커버리지 대시보드</b>Phase 6에서 제공됩니다 — 누락 · 판정대기 · 보정없음 집계.</div></div>
+
+  <!-- ---- 설정 ---- -->
+  <div class="panel" id="panel-settings">
+    <div class="card">
+      <h3>계정</h3>
+      <div class="hint" style="margin:8px 0" id="settAccount">—</div>
+      <button class="btn danger sm" id="btnLogout2">로그아웃</button>
+    </div>
+    <div class="card">
+      <h3>동기화</h3>
+      <div class="hint" style="margin:8px 0" id="settSync">—</div>
+      <div class="hint">저장 프로젝트: <span class="mono">inno-nanoil</span> (NanoLab과 공유). 컬렉션: <span class="mono">opt_presets · opt_cells · opt_templates · opt_runs · opt_calib · opt_mounts</span></div>
+    </div>
+    <div class="card">
+      <h3>저장공간</h3>
+      <div class="hint" style="margin:8px 0">파일 첨부(대표 성공 데이터)는 Phase 4에서 활성화됩니다. 이 프로젝트의 무료 한도 1&nbsp;GiB는 NanoLab과 공유되므로, 활성화 후 이 화면에 실시간 사용량 계기판이 표시됩니다.</div>
+    </div>
+    <div class="card">
+      <h3>화면</h3>
+      <div class="rowbar"><span class="hint">테마</span><button class="btn sm" id="btnThemeSettings">라이트 / 다크 전환</button></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>INNO Ledger · Phase 2 · v0.2.0</span>
+    <span id="footBuild"></span>
+  </div>
+</div>
+
+<!-- ---- 셀 편집 팝오버 ---- -->
+<div class="overlay" id="cellOverlay">
+  <div class="modalcard" id="cellModal"></div>
+</div>
+
+<!-- ---- 조합 추가 모달 ---- -->
+<div class="overlay" id="colOverlay">
+  <div class="modalcard" id="colModal"></div>
+</div>
+
+<!-- ---- 템플릿 적용 모달 ---- -->
+<div class="overlay" id="tplApplyOverlay">
+  <div class="modalcard" id="tplApplyModal"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+ * INNO Ledger — Phase 2
+ * 이어서: 매트릭스 뷰(측정종류 축 전환 + 압축 표시) + 셀 상태기계 + 계획 템플릿
+ * Phase 1 스캐폴드(로그인/lot 읽기/프리셋)에 이어 붙였습니다.
+ * 앵커 주석(PHASE n:)을 다음 확장 지점으로 사용하세요.
+ * ===================================================================== */
+
+/* ---------------- Firebase 설정 (INNO NanoLab과 동일 프로젝트 — 설계 확정본 §1) --------------- */
+const FB_CONFIG = {
+  apiKey: "AIzaSyBDOpUXKLbgmCkapj03LfwN4M0mmbhKIuw",
+  authDomain: "inno-nanoil.firebaseapp.com",
+  projectId: "inno-nanoil",
+  storageBucket: "inno-nanoil.firebasestorage.app",
+  messagingSenderId: "641327139165",
+  appId: "1:641327139165:web:bc83f8a50d965dedba80b4"
+};
+
+/* ---------------- 측정종류 시드 (INNO Optics 등록 10종 — 측정 네이밍 통일본 그대로) --------------- */
+const SEED_MEAS = [
+  { id: "apd_trace",       label: "APD trace" },
+  { id: "powermeter_trace",label: "Powermeter trace" },
+  { id: "scan_2d",         label: "2D scan" },
+  { id: "scan_3d",         label: "3D scan" },
+  { id: "emccd_spectrum",  label: "EMCCD spectrum" },
+  { id: "power_scan",      label: "Power scan" },
+  { id: "lifetime",        label: "Lifetime" },
+  { id: "depletion_scan",  label: "Depletion scan" },
+  { id: "snspd_spectrum",  label: "SNSPD spectrum" },
+  { id: "snspd_trace",     label: "SNSPD trace" },
+];
+
+/* ---------------- 여기/검출 프리셋 예시 시드 (전부 편집·추가·삭제 가능) --------------- */
+const SEED_EX = [
+  { id: "ex_1064cw", label: "1064 CW", sources: [{ lambdaNm: 1064, role: "exc", mode: "cw" }], note: "" },
+  { id: "ex_980cw",  label: "980 CW",  sources: [{ lambdaNm: 980,  role: "exc", mode: "cw" }], note: "" },
+];
+const SEED_EM = [
+  { id: "em_apd_800_12",      label: "APD@800/12",        detector: "apd",   kindType: "band",  centerNm: 800,  bwNm: 12, minNm: null, maxNm: null, filter: "", note: "" },
+  { id: "em_emccd_400_800",   label: "EMCCD 400–800",     detector: "emccd", kindType: "range", centerNm: null, bwNm: null, minNm: 400, maxNm: 800, filter: "", note: "" },
+  { id: "em_snspd_1700_1900", label: "SNSPD 1700–1900",   detector: "snspd", kindType: "range", centerNm: null, bwNm: null, minNm: 1700,maxNm: 1900,filter: "", note: "" },
+];
+
+/* ---------------- 계획 템플릿 시드 (예시 1개 — 사용자가 자유롭게 추가) --------------- */
+const SEED_TEMPLATES = [
+  {
+    id: "tpl_pa_starter",
+    name: "PA 후보 표준 세트 (예시)",
+    description: "photon-avalanche 후보 샘플에 기본으로 계획하는 조합 — 필요에 맞게 행을 추가/삭제하세요.",
+    rows: [
+      { measTypeId: "power_scan", exPresetId: "ex_1064cw", emPresetId: "em_apd_800_12", priority: "high", note: "" },
+      { measTypeId: "lifetime",   exPresetId: "ex_1064cw", emPresetId: "em_apd_800_12", priority: "mid",  note: "" },
+    ],
+  },
+];
+
+/* ---------------- 셀 상태기계 (설계 확정본 §2.5) --------------- */
+const STATUS_META = {
+  none:    { label: "—",     cls: "none" },
+  planned: { label: "계획",   cls: "planned" },
+  ticket:  { label: "예약",   cls: "ticket" },
+  pending: { label: "대기",   cls: "pending" },
+  success: { label: "성공",   cls: "success" },
+  retry:   { label: "재측정", cls: "retry" },
+};
+const PRIORITY_META = { high: "높음", mid: "보통", low: "낮음" };
+
+/* ---------------- state ---------------- */
+const state = {
+  fb: null,           // {app, auth, db, user}
+  lots: [],
+  presets: { meas: [], ex: [], em: [] },
+  cells: {},           // cellId -> Cell doc(+id)
+  templates: [],
+  tab: "matrix",
+  activeMeas: null,           // 현재 매트릭스에 표시 중인 측정종류 id
+  draftCols: {},              // measId -> Set("exId|emId")  (아직 셀이 없는 임시 열)
+  selectedLots: new Set(),
+};
+
+const $  = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c])); }
+function toast(msg, ms) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._h); t._h = setTimeout(() => (t.style.display = "none"), ms || 2600);
+}
+function fmtDate(v) {
+  if (v == null || v === "") return "—";
+  try {
+    let d;
+    if (typeof v === "object" && typeof v.toDate === "function") d = v.toDate();
+    else if (typeof v === "number") d = new Date(v);
+    else d = new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    return d.toISOString().slice(0, 10);
+  } catch (e) { return String(v); }
+}
+function fmtDateTime(v) {
+  if (v == null || v === "") return "—";
+  try {
+    const d = typeof v === "number" ? new Date(v) : new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  } catch (e) { return String(v); }
+}
+function excelRoundish(n, digits) {
+  if (n == null || !isFinite(n)) return "";
+  const p = Math.pow(10, digits);
+  const r = Math.round(n * p) / p;
+  return String(r);
+}
+function safeSeg(s) { return String(s).replace(/[\/]/g, "_"); }
+
+/* ---------------- theme ---------------- */
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  try { localStorage.setItem("ledger_theme", t); } catch (e) {}
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  applyTheme(cur === "dark" ? "light" : "dark");
+}
+
+/* ---------------- lot 표시 헬퍼 (NanoLab core.js 규칙의 최소 재현 — 읽기 전용) ---------------- */
+function lotLabel(lot) {
+  const nm = lot && typeof lot.name === "string" ? lot.name.trim() : "";
+  if (nm) return nm;
+  const s = lot && lot.serial != null ? String(lot.serial).padStart(4, "0") : "?";
+  return `Lot #${s}${lot && lot.type === "Shell" ? "s" : "c"}`;
+}
+function lotFormula(lot) {
+  let s = "";
+  for (const st of (lot.stoich || [])) {
+    if (!st || !st.el) continue;
+    const c = st.coeff;
+    s += st.el + ((c === 1 || c === null || c === undefined) ? "" : excelRoundish(c, 4));
+  }
+  return s || "—";
+}
+function lotTypeBadge(lot) {
+  const t = lot && lot.type;
+  if (t === "Shell") return `<span class="badge shell">Shell</span>`;
+  if (t === "Core") return `<span class="badge core">Core</span>`;
+  return `<span class="badge other">${esc(t || "—")}</span>`;
+}
+function filteredLots() {
+  const q = ($("#lotSearch").value || "").trim().toLowerCase();
+  return state.lots
+    .filter(l => {
+      if (!q) return true;
+      const hay = (lotLabel(l) + " " + lotFormula(l) + " " + (l.group || "") + " " + (l.memo || "")).toLowerCase();
+      return hay.includes(q);
+    })
+    .sort((a, b) => (Number(b.serial) || 0) - (Number(a.serial) || 0));
+}
+
+/* ---------------- preset 조회 헬퍼 ---------------- */
+function presetById(kind, id) { return state.presets[kind].find(p => p.id === id); }
+function exLabel(id) { const p = presetById("ex", id); return p ? p.label : "(삭제됨)"; }
+function emLabel(id) { const p = presetById("em", id); return p ? p.label : "(삭제됨)"; }
+function measLabel(id) { const m = SEED_MEAS.find(m => m.id === id); return m ? m.label : id; }
+
+/* ---------------- Sync: Firebase 연결 + Firestore I/O ---------------- */
+const Sync = (() => {
+  let unsubs = [];
+
+  function setChip(status, detail) {
+    const chip = $("#chipSync");
+    chip.className = "chip dot" + (status === "on" ? " on" : status === "err" ? " err" : status === "busy" ? " busy" : "");
+    chip.textContent = detail || (status === "on" ? "동기화 중" : status === "err" ? "오류" : status === "busy" ? "연결 중…" : "연결 대기");
+  }
+
+  async function loadSdk() {
+    if (window.firebase && window.firebase.firestore) return;
+    const load = src => new Promise((res, rej) => {
+      const sc = document.createElement("script");
+      sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error("SDK 로드 실패: " + src));
+      document.head.appendChild(sc);
+    });
+    await load("https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js");
+    await load("https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js");
+    await load("https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js");
+  }
+
+  function friendly(e) {
+    const c = (e && e.code) || "";
+    if (c.includes("popup-closed") || c.includes("cancelled-popup")) return "로그인 팝업이 닫혔습니다";
+    if (c.includes("popup-blocked")) return "브라우저가 팝업을 차단했습니다 — 팝업 허용 후 재시도";
+    if (c.includes("unauthorized-domain")) return "승인되지 않은 도메인 — Firebase 콘솔 승인 도메인에 추가 필요";
+    if (c.includes("operation-not-supported")) return "이 환경(file://)에서는 Google 로그인이 지원되지 않습니다 — 웹 배포로 사용";
+    if (c.includes("permission") || c.includes("insufficient")) return "권한 거부 — Firestore 보안규칙에 opt_* 컬렉션 허용이 필요할 수 있습니다";
+    if (c.includes("network")) return "네트워크 오류";
+    return (e && e.message) || String(e);
+  }
+
+  function col(name) { return state.fb.db.collection("users").doc(state.fb.user.uid).collection(name); }
+
+  async function login() {
+    const errBox = $("#gateErr"); errBox.style.display = "none";
+    if (location.protocol === "file:") {
+      errBox.textContent = "file://에서는 Google 로그인이 동작하지 않습니다. 웹 서버(로컬 서버 또는 GitHub Pages)로 열어 주세요.";
+      errBox.style.display = "block";
+      return;
+    }
+    setChip("busy");
+    try {
+      await loadSdk();
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB_CONFIG);
+      const auth = firebase.auth();
+      const provider = new firebase.auth.GoogleAuthProvider();
+      const cred = await auth.signInWithPopup(provider);
+      state.fb = { app, auth, db: firebase.firestore(), user: cred.user };
+      onLoggedIn();
+    } catch (e) {
+      console.error(e);
+      setChip("err");
+      errBox.textContent = "로그인 실패: " + friendly(e);
+      errBox.style.display = "block";
+    }
+  }
+
+  async function tryRestore() {
+    try {
+      await loadSdk();
+      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB_CONFIG);
+      const auth = firebase.auth();
+      auth.onAuthStateChanged(user => {
+        if (user && !state.fb) {
+          state.fb = { app, auth, db: firebase.firestore(), user };
+          onLoggedIn();
+        }
+      });
+    } catch (e) { /* SDK 로드 실패는 로그인 버튼에서 다시 시도됨 */ }
+  }
+
+  function logout() {
+    unsubs.forEach(u => { try { u(); } catch (e) {} });
+    unsubs = [];
+    if (state.fb && state.fb.auth) { try { state.fb.auth.signOut(); } catch (e) {} }
+    state.fb = null;
+    $("#app").classList.remove("on");
+    $("#loginGate").classList.remove("hidden");
+    setChip("off");
+  }
+
+  async function ensureSeededCore() {
+    const metaRef = col("opt_meta").doc("seed_v1");
+    const snap = await metaRef.get();
+    if (snap.exists) return;
+    const batch = state.fb.db.batch();
+    SEED_MEAS.forEach(m => batch.set(col("opt_presets").doc("meas_" + m.id),
+      { kind: "meas", measId: m.id, label: m.label, gateSpec: {}, seeded: true }));
+    SEED_EX.forEach(x => batch.set(col("opt_presets").doc(x.id),
+      { kind: "ex", label: x.label, sources: x.sources, note: x.note || "", seeded: true }));
+    SEED_EM.forEach(x => batch.set(col("opt_presets").doc(x.id),
+      { kind: "em", label: x.label, detector: x.detector, kindType: x.kindType,
+        centerNm: x.centerNm, bwNm: x.bwNm, minNm: x.minNm, maxNm: x.maxNm,
+        filter: x.filter || "", note: x.note || "", seeded: true }));
+    batch.set(metaRef, { at: Date.now(), n: SEED_MEAS.length + SEED_EX.length + SEED_EM.length });
+    await batch.commit();
+  }
+
+  /* PHASE 2: 템플릿 시드는 별도 플래그로 — Phase 1에서 이미 seed_v1을 마친 기존 사용자도 받도록 */
+  async function ensureSeededTemplates() {
+    const metaRef = col("opt_meta").doc("seed_v2_templates");
+    const snap = await metaRef.get();
+    if (snap.exists) return;
+    const batch = state.fb.db.batch();
+    SEED_TEMPLATES.forEach(t => batch.set(col("opt_templates").doc(t.id),
+      { name: t.name, description: t.description, rows: t.rows, seeded: true, createdAt: Date.now(), updatedAt: Date.now() }));
+    batch.set(metaRef, { at: Date.now(), n: SEED_TEMPLATES.length });
+    await batch.commit();
+  }
+
+  function subscribeLots() {
+    unsubs.push(col("lots").onSnapshot(snap => {
+      state.lots = snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      renderMatrix();
+    }, err => { console.error(err); toast("lot 읽기 오류: " + friendly(err), 4000); }));
+  }
+
+  function subscribePresets() {
+    unsubs.push(col("opt_presets").onSnapshot(snap => {
+      const meas = [], ex = [], em = [];
+      snap.docs.forEach(d => {
+        const it = Object.assign({ id: d.id }, d.data());
+        if (it.kind === "meas") meas.push(it);
+        else if (it.kind === "ex") ex.push(it);
+        else if (it.kind === "em") em.push(it);
+      });
+      meas.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+      ex.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+      em.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+      state.presets = { meas, ex, em };
+      if (!state.activeMeas && meas.length) state.activeMeas = meas[0].measId;
+      renderPresets();
+      renderMeasChips();
+      renderMatrix();
+    }, err => { console.error(err); toast("프리셋 읽기 오류: " + friendly(err), 4000); }));
+  }
+
+  function subscribeCells() {
+    unsubs.push(col("opt_cells").onSnapshot(snap => {
+      const cells = {};
+      snap.docs.forEach(d => { cells[d.id] = Object.assign({ id: d.id }, d.data()); });
+      state.cells = cells;
+      renderMeasChips();
+      renderMatrix();
+    }, err => { console.error(err); toast("셀 읽기 오류: " + friendly(err), 4000); }));
+  }
+
+  function subscribeTemplates() {
+    unsubs.push(col("opt_templates").onSnapshot(snap => {
+      state.templates = snap.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      renderTemplates();
+    }, err => { console.error(err); toast("템플릿 읽기 오류: " + friendly(err), 4000); }));
+  }
+
+  async function savePreset(kind, id, data) {
+    const ref = id ? col("opt_presets").doc(id) : col("opt_presets").doc();
+    await ref.set(Object.assign({ kind }, data), { merge: true });
+    return ref.id;
+  }
+  async function deletePreset(id) {
+    await col("opt_presets").doc(id).delete();
+  }
+
+  /* ---- Cell ---- */
+  async function saveCell(cellId, data) {
+    await col("opt_cells").doc(cellId).set(data, { merge: true });
+  }
+  async function deleteCell(cellId) {
+    await col("opt_cells").doc(cellId).delete();
+  }
+
+  /* ---- Template ---- */
+  async function saveTemplate(id, data) {
+    const ref = id ? col("opt_templates").doc(id) : col("opt_templates").doc();
+    await ref.set(Object.assign({ updatedAt: Date.now() }, data, id ? {} : { createdAt: Date.now() }), { merge: true });
+    return ref.id;
+  }
+  async function deleteTemplate(id) {
+    await col("opt_templates").doc(id).delete();
+  }
+  /** 선택한 lot들에 템플릿의 각 행을 계획 상태로 upsert. 이미 존재하는 셀은 건드리지 않는다. */
+  async function applyTemplateToLots(tpl, lotIds) {
+    const batch = state.fb.db.batch();
+    let created = 0, skipped = 0;
+    for (const lotId of lotIds) {
+      for (const row of (tpl.rows || [])) {
+        const cid = [safeSeg(lotId), safeSeg(row.measTypeId), safeSeg(row.exPresetId), safeSeg(row.emPresetId)].join("|");
+        if (state.cells[cid]) { skipped++; continue; }
+        batch.set(col("opt_cells").doc(cid), {
+          lotId, measTypeId: row.measTypeId, exPresetId: row.exPresetId, emPresetId: row.emPresetId,
+          status: "planned", priority: row.priority || "mid", note: row.note || "",
+          plannedAt: Date.now(), plannedBy: (state.fb.user.email || ""), fromTemplate: tpl.id,
+        });
+        created++;
+      }
+    }
+    if (created) await batch.commit();
+    return { created, skipped };
+  }
+
+  async function onLoggedIn() {
+    $("#loginGate").classList.add("hidden");
+    $("#app").classList.add("on");
+    $("#chipUser").textContent = state.fb.user.email || state.fb.user.displayName || "로그인됨";
+    $("#settAccount").textContent = (state.fb.user.email || "") + " · UID " + state.fb.user.uid.slice(0, 8) + "…";
+    setChip("busy", "동기화 중…");
+    try {
+      await ensureSeededCore();
+      await ensureSeededTemplates();
+      subscribeLots();
+      subscribePresets();
+      subscribeCells();
+      subscribeTemplates();
+      setChip("on", "동기화 중 · " + (state.fb.user.email || ""));
+      $("#settSync").textContent = "실시간 동기화 켜짐 (" + (state.fb.user.email || "") + ")";
+    } catch (e) {
+      console.error(e);
+      setChip("err", "오류: " + friendly(e));
+      toast("초기화 실패: " + friendly(e), 5000);
+    }
+  }
+
+  return { login, logout, tryRestore, col, savePreset, deletePreset, saveCell, deleteCell, saveTemplate, deleteTemplate, applyTemplateToLots };
+})();
+
+/* ---------------- 셀 헬퍼 ---------------- */
+function cellId(lotId, measId, exId, emId) {
+  return [safeSeg(lotId), safeSeg(measId), safeSeg(exId), safeSeg(emId)].join("|");
+}
+function getCell(lotId, measId, exId, emId) {
+  return state.cells[cellId(lotId, measId, exId, emId)] || null;
+}
+/** 현재 측정종류에 대해 존재하는 (ex,em) 열 = 이미 셀이 있는 조합 ∪ 이번 세션에서 추가한 임시 열 */
+function columnsForMeas(measId) {
+  const keys = new Set();
+  Object.values(state.cells).forEach(c => { if (c.measTypeId === measId) keys.add(c.exPresetId + "|" + c.emPresetId); });
+  (state.draftCols[measId] || new Set()).forEach(k => keys.add(k));
+  return Array.from(keys).map(k => { const [exId, emId] = k.split("|"); return { exId, emId }; })
+    .filter(c => presetById("ex", c.exId) && presetById("em", c.emId))
+    .sort((a, b) => (exLabel(a.exId) + emLabel(a.emId)).localeCompare(exLabel(b.exId) + emLabel(b.emId)));
+}
+function measCellCounts(measId) {
+  const out = { planned: 0, success: 0, pending: 0, retry: 0, ticket: 0 };
+  Object.values(state.cells).forEach(c => {
+    if (c.measTypeId !== measId) return;
+    if (out[c.status] != null) out[c.status]++;
+  });
+  return out;
+}
+
+/* ---------------- render: 측정종류 칩 (축 전환) ---------------- */
+function renderMeasChips() {
+  const box = $("#measChips");
+  if (!state.presets.meas.length) { box.innerHTML = `<span class="hint">측정종류 시드 대기 중…</span>`; return; }
+  box.innerHTML = state.presets.meas.map(m => {
+    const n = measCellCounts(m.measId);
+    const total = n.planned + n.success + n.pending + n.retry + n.ticket;
+    return `<button class="measchip${m.measId === state.activeMeas ? " on" : ""}" data-meas="${esc(m.measId)}">
+      ${esc(m.label)}${total ? `<span class="n">${total}</span>` : ""}
+    </button>`;
+  }).join("");
+  $$("[data-meas]", box).forEach(b => b.onclick = () => { state.activeMeas = b.dataset.meas; renderMeasChips(); renderMatrix(); });
+}
+
+/* ---------------- render: 매트릭스 ---------------- */
+function renderMatrix() {
+  const measId = state.activeMeas;
+  const rows = filteredLots();
+  $("#lotCount").textContent = state.lots.length ? `${rows.length} / ${state.lots.length}건` : "";
+  $("#selCount").textContent = state.selectedLots.size ? `${state.selectedLots.size}개 선택됨` : "";
+  $("#btnApplyTpl").disabled = state.selectedLots.size === 0;
+
+  if (!state.lots.length) {
+    $("#matrixWrap").innerHTML = `<div class="empty"><b>NanoLab에서 아직 불러온 lot이 없습니다</b>NanoLab에서 lot을 등록·동기화하면 이 목록에 나타납니다.</div>`;
+    $("#measSummary").textContent = "";
+    return;
+  }
+  if (!measId) {
+    $("#matrixWrap").innerHTML = `<div class="empty">측정종류를 선택하세요.</div>`;
+    return;
+  }
+  const cnt = measCellCounts(measId);
+  $("#measSummary").textContent =
+    `${measLabel(measId)} — 계획 ${cnt.planned} · 예약 ${cnt.ticket} · 판정대기 ${cnt.pending} · 성공 ${cnt.success} · 재측정필요 ${cnt.retry}`;
+
+  const cols = columnsForMeas(measId);
+  if (!rows.length) {
+    $("#matrixWrap").innerHTML = `<div class="empty">검색 결과가 없습니다.</div>`;
+    return;
+  }
+  if (!cols.length) {
+    $("#matrixWrap").innerHTML = `<div class="empty"><b>이 측정종류에 등록된 조합이 없습니다</b>"+ 조합 추가"로 여기구성 × 검출채널 조합을 만들거나, 계획 템플릿을 적용하세요.</div>`;
+    return;
+  }
+
+  const allChecked = rows.every(l => state.selectedLots.has(l.id)) ;
+  const thead = `<thead><tr>
+      <th class="corner"><input type="checkbox" id="chkAll" ${allChecked ? "checked" : ""}></th>
+      ${cols.map(c => `<th class="colhead">${esc(exLabel(c.exId))}<br><span class="muted">${esc(emLabel(c.emId))}</span></th>`).join("")}
+    </tr></thead>`;
+
+  const tbody = "<tbody>" + rows.map(l => {
+    const tds = cols.map(c => {
+      const cell = getCell(l.id, measId, c.exId, c.emId);
+      const st = cell ? (STATUS_META[cell.status] ? cell.status : "planned") : "none";
+      const meta = STATUS_META[st];
+      return `<td class="cellslot" data-lot="${esc(l.id)}" data-ex="${esc(c.exId)}" data-em="${esc(c.emId)}">
+        <span class="cellbadge ${meta.cls}">${esc(meta.label)}</span>
+      </td>`;
+    }).join("");
+    return `<tr>
+      <th class="rowhead">
+        <input type="checkbox" class="rowchk" data-lotchk="${esc(l.id)}" ${state.selectedLots.has(l.id) ? "checked" : ""}>
+        <span class="rowlabel mono">${esc(lotLabel(l))}</span>${lotTypeBadge(l)}
+        <div class="rowsub formula">${esc(lotFormula(l))}${l.group ? " · " + esc(l.group) : ""}</div>
+      </th>
+      ${tds}
+    </tr>`;
+  }).join("") + "</tbody>";
+
+  $("#matrixWrap").innerHTML = `<div class="matrixscroll"><table class="matrix">${thead}${tbody}</table></div>`;
+
+  $("#chkAll").onchange = e => {
+    rows.forEach(l => { if (e.target.checked) state.selectedLots.add(l.id); else state.selectedLots.delete(l.id); });
+    renderMatrix();
+  };
+  $$("[data-lotchk]").forEach(chk => chk.onchange = () => {
+    if (chk.checked) state.selectedLots.add(chk.dataset.lotchk); else state.selectedLots.delete(chk.dataset.lotchk);
+    renderMatrix();
+  });
+  $$(".cellslot").forEach(td => td.onclick = () => openCellModal(td.dataset.lot, measId, td.dataset.ex, td.dataset.em));
+}
+
+/* ---------------- 셀 편집 모달 ---------------- */
+function closeOverlay(id) { $("#" + id).classList.remove("on"); }
+function openOverlay(id) { $("#" + id).classList.add("on"); }
+
+function openCellModal(lotId, measId, exId, emId) {
+  const cid = cellId(lotId, measId, exId, emId);
+  const cell = state.cells[cid];
+  const lot = state.lots.find(l => l.id === lotId);
+  const status = cell ? cell.status : "none";
+  const modal = $("#cellModal");
+  modal.innerHTML = `
+    <h3>${esc(lotLabel(lot))} · ${esc(measLabel(measId))}</h3>
+    <div class="sub">${esc(exLabel(exId))} · ${esc(emLabel(emId))}</div>
+    <div class="grid-form">
+      <div class="field"><label>상태</label>
+        <select id="cmStatus">
+          <option value="none"${status === "none" ? " selected" : ""}>미계획</option>
+          <option value="planned"${status === "planned" ? " selected" : ""}>계획됨</option>
+          ${status !== "none" && status !== "planned" ? `<option value="${status}" selected disabled>${STATUS_META[status].label} (Phase 3+에서 자동 전이)</option>` : ""}
+        </select></div>
+      <div class="field"><label>우선순위</label>
+        <select id="cmPriority">
+          <option value="high"${cell && cell.priority === "high" ? " selected" : ""}>높음</option>
+          <option value="mid"${!cell || cell.priority === "mid" || !cell.priority ? " selected" : ""}>보통</option>
+          <option value="low"${cell && cell.priority === "low" ? " selected" : ""}>낮음</option>
+        </select></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>메모</label><textarea id="cmNote" rows="2">${esc(cell && cell.note || "")}</textarea></div>
+    ${cell && cell.plannedAt ? `<div class="hint" style="margin-top:8px">계획: ${fmtDateTime(cell.plannedAt)} · ${esc(cell.plannedBy || "")}${cell.fromTemplate ? " · 템플릿 적용" : ""}</div>` : ""}
+    <div class="rowbar">
+      ${cell ? `<button class="btn danger sm" id="cmDelete">미계획으로 되돌리기</button>` : ""}
+      <span class="spacer"></span>
+      <button class="btn sm ghost" id="cmCancel">취소</button>
+      <button class="btn sm primary" id="cmSave">저장</button>
+    </div>`;
+  openOverlay("cellOverlay");
+  $("#cmCancel").onclick = () => closeOverlay("cellOverlay");
+  if (cell) $("#cmDelete").onclick = async () => {
+    if (status !== "none" && status !== "planned") {
+      const ok = confirm(`이 셀은 "${STATUS_META[status].label}" 상태입니다 — Run·판정 기록이 연결되어 있을 수 있습니다.\n정말 미계획으로 되돌릴까요?`);
+      if (!ok) return;
+    }
+    try { await Sync.deleteCell(cid); closeOverlay("cellOverlay"); toast("미계획으로 되돌렸습니다"); }
+    catch (e) { toast("실패: " + (e.message || e), 4000); }
+  };
+  $("#cmSave").onclick = async () => {
+    const newStatus = $("#cmStatus").value;
+    const priority = $("#cmPriority").value;
+    const note = $("#cmNote").value.trim();
+    try {
+      if (newStatus === "none") {
+        if (cell) await Sync.deleteCell(cid);
+      } else {
+        await Sync.saveCell(cid, {
+          lotId, measTypeId: measId, exPresetId: exId, emPresetId: emId,
+          status: newStatus, priority, note,
+          plannedAt: (cell && cell.plannedAt) || Date.now(),
+          plannedBy: (cell && cell.plannedBy) || (state.fb.user.email || ""),
+        });
+      }
+      closeOverlay("cellOverlay");
+      toast("저장했습니다");
+    } catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+}
+
+/* ---------------- 조합 추가 모달 ---------------- */
+function openAddColumnModal() {
+  if (!state.activeMeas) { toast("먼저 측정종류를 선택하세요"); return; }
+  if (!state.presets.ex.length || !state.presets.em.length) { toast("여기 구성·검출 채널 프리셋을 먼저 프리셋 탭에서 만드세요"); return; }
+  const modal = $("#colModal");
+  modal.innerHTML = `
+    <h3>조합 추가</h3>
+    <div class="sub">${esc(measLabel(state.activeMeas))}에 새 열(여기구성 × 검출채널)을 엽니다. 아직 셀이 없으면 lot에서 셀을 하나 이상 계획해야 열이 유지됩니다.</div>
+    <div class="grid-form">
+      <div class="field"><label>여기 구성</label>
+        <select id="colEx">${state.presets.ex.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
+      <div class="field"><label>검출 채널</label>
+        <select id="colEm">${state.presets.em.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
+    </div>
+    <div class="rowbar"><span class="spacer"></span>
+      <button class="btn sm ghost" id="colCancel">취소</button>
+      <button class="btn sm primary" id="colAdd">추가</button>
+    </div>`;
+  openOverlay("colOverlay");
+  $("#colCancel").onclick = () => closeOverlay("colOverlay");
+  $("#colAdd").onclick = () => {
+    const exId = $("#colEx").value, emId = $("#colEm").value;
+    const key = exId + "|" + emId;
+    if (!state.draftCols[state.activeMeas]) state.draftCols[state.activeMeas] = new Set();
+    state.draftCols[state.activeMeas].add(key);
+    closeOverlay("colOverlay");
+    renderMatrix();
+  };
+}
+
+/* ---------------- 템플릿 적용 모달 ---------------- */
+function openApplyTemplateModal() {
+  if (!state.selectedLots.size) return;
+  if (!state.templates.length) { toast("계획 템플릿이 없습니다 — '계획 템플릿' 탭에서 먼저 만드세요"); return; }
+  const modal = $("#tplApplyModal");
+  modal.innerHTML = `
+    <h3>템플릿 적용</h3>
+    <div class="sub">선택한 lot ${state.selectedLots.size}개에 템플릿의 각 행을 "계획됨" 상태로 추가합니다. 이미 존재하는 셀은 건드리지 않습니다.</div>
+    <div class="field"><label>템플릿</label>
+      <select id="tplApplySel">${state.templates.map(t => `<option value="${esc(t.id)}">${esc(t.name)} (${(t.rows||[]).length}행)</option>`).join("")}</select></div>
+    <div class="rowbar"><span class="spacer"></span>
+      <button class="btn sm ghost" id="tplApplyCancel">취소</button>
+      <button class="btn sm primary" id="tplApplyGo">적용</button>
+    </div>`;
+  openOverlay("tplApplyOverlay");
+  $("#tplApplyCancel").onclick = () => closeOverlay("tplApplyOverlay");
+  $("#tplApplyGo").onclick = async () => {
+    const tpl = state.templates.find(t => t.id === $("#tplApplySel").value);
+    if (!tpl) return;
+    try {
+      const { created, skipped } = await Sync.applyTemplateToLots(tpl, Array.from(state.selectedLots));
+      closeOverlay("tplApplyOverlay");
+      toast(`셀 ${created}개 생성${skipped ? `, ${skipped}개는 이미 있어 유지` : ""}`);
+    } catch (e) { toast("적용 실패: " + (e.message || e), 4000); }
+  };
+}
+
+/* ---------------- render: 계획 템플릿 탭 ---------------- */
+function renderTemplates() {
+  const wrap = $("#tplListWrap");
+  if (!state.templates.length) {
+    wrap.innerHTML = `<div class="empty"><b>템플릿이 없습니다</b>"+ 새 템플릿"으로 자주 쓰는 측정 조합 세트를 만들어 두세요.</div>`;
+    return;
+  }
+  wrap.innerHTML = state.templates.map(t => `
+    <div class="tpl-card">
+      <div class="rowbar" style="margin-bottom:0">
+        <div><span class="tplname">${esc(t.name)}</span>${t.seeded ? '<span class="seedbadge">시드</span>' : ""}
+          <div class="tplmeta">${esc(t.description || "")}</div></div>
+        <span class="spacer"></span>
+        <button class="btn sm" data-tpledit="${esc(t.id)}">편집</button>
+        <button class="btn sm danger" data-tpldel="${esc(t.id)}">삭제</button>
+      </div>
+      <div class="tpl-rows">
+        ${(t.rows || []).map(r => `<div class="hint">· ${esc(measLabel(r.measTypeId))} — ${esc(exLabel(r.exPresetId))} × ${esc(emLabel(r.emPresetId))} <span class="muted">(${esc(PRIORITY_META[r.priority] || "보통")})</span></div>`).join("") || `<div class="hint">행이 없습니다</div>`}
+      </div>
+    </div>`).join("");
+  $$("[data-tpledit]", wrap).forEach(b => b.onclick = () => openTemplateEditor(state.templates.find(t => t.id === b.dataset.tpledit)));
+  $$("[data-tpldel]", wrap).forEach(b => b.onclick = async () => {
+    if (!confirm("이 템플릿을 삭제할까요? (이미 적용된 셀은 남아 있습니다)")) return;
+    try { await Sync.deleteTemplate(b.dataset.tpldel); toast("삭제했습니다"); }
+    catch (e) { toast("삭제 실패: " + (e.message || e), 4000); }
+  });
+}
+
+function openTemplateEditor(existing) {
+  const box = $("#tplEditor");
+  const tpl = existing ? JSON.parse(JSON.stringify(existing)) : { name: "", description: "", rows: [] };
+  function rowHtml(r, i) {
+    return `<div class="tpl-row" data-i="${i}">
+      <select data-f="measTypeId">${state.presets.meas.map(m => `<option value="${esc(m.measId)}"${r.measTypeId === m.measId ? " selected" : ""}>${esc(m.label)}</option>`).join("")}</select>
+      <select data-f="exPresetId">${state.presets.ex.map(x => `<option value="${esc(x.id)}"${r.exPresetId === x.id ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select>
+      <select data-f="emPresetId">${state.presets.em.map(x => `<option value="${esc(x.id)}"${r.emPresetId === x.id ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select>
+      <select data-f="priority">
+        <option value="high"${r.priority === "high" ? " selected" : ""}>높음</option>
+        <option value="mid"${!r.priority || r.priority === "mid" ? " selected" : ""}>보통</option>
+        <option value="low"${r.priority === "low" ? " selected" : ""}>낮음</option>
+      </select>
+      <input type="text" data-f="note" placeholder="메모" value="${esc(r.note || "")}">
+      <button class="rm" data-rm="${i}" title="행 삭제">✕</button>
+    </div>`;
+  }
+  function renderRows() { return tpl.rows.map(rowHtml).join("") || `<div class="hint">행이 없습니다. "+ 행 추가"로 만드세요.</div>`; }
+
+  box.innerHTML = `
+    <h3 style="font-size:14px">${existing ? "템플릿 편집" : "새 템플릿"}</h3>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>이름</label><input type="text" id="tplfName" value="${esc(tpl.name)}"></div>
+      <div class="field" style="grid-column:span 2"><label>설명</label><input type="text" id="tplfDesc" value="${esc(tpl.description || "")}"></div>
+    </div>
+    <div class="tpl-rows" id="tplfRows">${renderRows()}</div>
+    <div class="rowbar" style="margin-top:8px">
+      <button class="btn sm" id="tplfAddRow">+ 행 추가</button>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" id="tplfCancel">취소</button>
+      <button class="btn sm primary" id="tplfSave">저장</button>
+    </div>`;
+  box.classList.add("on");
+
+  function bindRowEvents() {
+    $$("#tplfRows .tpl-row").forEach(rowEl => {
+      $$("select,input", rowEl).forEach(inp => inp.onchange = inp.oninput = () => {
+        tpl.rows[+rowEl.dataset.i][inp.dataset.f] = inp.value;
+      });
+      const rm = $(".rm", rowEl);
+      rm.onclick = () => { tpl.rows.splice(+rm.dataset.rm, 1); $("#tplfRows").innerHTML = renderRows(); bindRowEvents(); };
+    });
+  }
+  bindRowEvents();
+
+  $("#tplfAddRow").onclick = () => {
+    if (!state.presets.meas.length || !state.presets.ex.length || !state.presets.em.length) {
+      toast("먼저 프리셋 탭에서 측정종류·여기구성·검출채널을 준비하세요"); return;
+    }
+    tpl.rows.push({ measTypeId: state.presets.meas[0].measId, exPresetId: state.presets.ex[0].id, emPresetId: state.presets.em[0].id, priority: "mid", note: "" });
+    $("#tplfRows").innerHTML = renderRows();
+    bindRowEvents();
+  };
+  $("#tplfCancel").onclick = () => box.classList.remove("on");
+  $("#tplfSave").onclick = async () => {
+    const name = $("#tplfName").value.trim();
+    if (!name) { toast("템플릿 이름을 입력하세요"); return; }
+    const data = { name, description: $("#tplfDesc").value.trim(), rows: tpl.rows };
+    try { await Sync.saveTemplate(existing ? existing.id : null, data); box.classList.remove("on"); toast("저장했습니다"); }
+    catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+}
+
+/* ---------------- render: 프리셋 ---------------- */
+function renderPresets() {
+  const measRows = state.presets.meas.map(m => `
+    <tr><td class="mono">${esc(m.measId || m.id)}</td><td>${esc(m.label)}${m.seeded ? '<span class="seedbadge">시드</span>' : ""}</td>
+    <td class="muted">gateSpec 편집 — Phase 5</td></tr>`).join("");
+  $("#measTableWrap").innerHTML = state.presets.meas.length
+    ? `<table class="grid"><thead><tr><th>ID</th><th>표시명</th><th>자동 게이트</th></tr></thead><tbody>${measRows}</tbody></table>`
+    : `<div class="empty">측정종류 시드 대기 중…</div>`;
+
+  const exRows = state.presets.ex.map(x => `
+    <tr>
+      <td>${esc(x.label)}${x.seeded ? '<span class="seedbadge">시드</span>' : ""}</td>
+      <td class="mono">${(x.sources || []).map(s => `${s.lambdaNm}nm/${esc(s.role || "exc")}`).join(", ") || "—"}</td>
+      <td class="muted">${esc(x.note || "")}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn sm" data-editex="${esc(x.id)}">편집</button>
+        <button class="btn sm danger" data-delex="${esc(x.id)}">삭제</button>
+      </td>
+    </tr>`).join("");
+  $("#exTableWrap").innerHTML = state.presets.ex.length
+    ? `<table class="grid"><thead><tr><th>이름</th><th>구성(λ/역할)</th><th>메모</th><th></th></tr></thead><tbody>${exRows}</tbody></table>`
+    : `<div class="empty">여기 구성 프리셋이 없습니다. "+ 추가"로 만드세요.</div>`;
+
+  const emRows = state.presets.em.map(x => {
+    const range = x.kindType === "band"
+      ? `${x.centerNm ?? "—"}nm ± ${x.bwNm ?? "—"}nm`
+      : x.kindType === "range"
+      ? `${x.minNm ?? "—"}–${x.maxNm ?? "—"}nm`
+      : "축(axis)";
+    return `
+    <tr>
+      <td>${esc(x.label)}${x.seeded ? '<span class="seedbadge">시드</span>' : ""}</td>
+      <td class="mono">${esc(x.detector || "—")}</td>
+      <td class="mono">${esc(range)}</td>
+      <td class="muted">${esc(x.note || "")}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn sm" data-editem="${esc(x.id)}">편집</button>
+        <button class="btn sm danger" data-delem="${esc(x.id)}">삭제</button>
+      </td>
+    </tr>`;
+  }).join("");
+  $("#emTableWrap").innerHTML = state.presets.em.length
+    ? `<table class="grid"><thead><tr><th>이름</th><th>검출기</th><th>범위</th><th>메모</th><th></th></tr></thead><tbody>${emRows}</tbody></table>`
+    : `<div class="empty">검출 채널 프리셋이 없습니다. "+ 추가"로 만드세요.</div>`;
+
+  bindPresetRowEvents();
+}
+
+function bindPresetRowEvents() {
+  $$("[data-editex]").forEach(b => b.onclick = () => openExForm(state.presets.ex.find(x => x.id === b.dataset.editex)));
+  $$("[data-delex]").forEach(b => b.onclick = () => confirmDeletePreset(b.dataset.delex, "여기 구성"));
+  $$("[data-editem]").forEach(b => b.onclick = () => openEmForm(state.presets.em.find(x => x.id === b.dataset.editem)));
+  $$("[data-delem]").forEach(b => b.onclick = () => confirmDeletePreset(b.dataset.delem, "검출 채널"));
+}
+async function confirmDeletePreset(id, label) {
+  if (!confirm(`${label} 프리셋을 삭제할까요?\n\n(이미 셀에서 참조 중이면 매트릭스에 "(삭제됨)"으로 표시됩니다)`)) return;
+  try { await Sync.deletePreset(id); toast("삭제했습니다"); }
+  catch (e) { toast("삭제 실패: " + (e.message || e), 4000); }
+}
+
+/* ---- 여기 구성 폼 ---- */
+function openExForm(existing) {
+  const box = $("#exForm");
+  const x = existing || { label: "", sources: [{ lambdaNm: "", role: "exc", mode: "cw" }], note: "" };
+  box.innerHTML = `
+    <div class="grid-form">
+      <div class="field"><label>이름</label><input type="text" id="exfLabel" value="${esc(x.label)}" placeholder="예: 1064 CW"></div>
+      <div class="field"><label>λ (nm)</label><input type="number" id="exfLambda" value="${x.sources && x.sources[0] ? x.sources[0].lambdaNm : ""}"></div>
+      <div class="field"><label>역할</label>
+        <select id="exfRole"><option value="exc"${x.sources && x.sources[0] && x.sources[0].role === "exc" ? " selected" : ""}>exc (여기)</option>
+        <option value="sted"${x.sources && x.sources[0] && x.sources[0].role === "sted" ? " selected" : ""}>sted (소진)</option></select></div>
+      <div class="field"><label>모드</label>
+        <select id="exfMode"><option value="cw"${x.sources && x.sources[0] && x.sources[0].mode === "cw" ? " selected" : ""}>CW</option>
+        <option value="pulsed"${x.sources && x.sources[0] && x.sources[0].mode === "pulsed" ? " selected" : ""}>pulsed</option></select></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>메모</label><input type="text" id="exfNote" value="${esc(x.note || "")}"></div>
+    <div class="rowbar" style="margin-top:10px"><span class="spacer"></span>
+      <button class="btn sm ghost" id="exfCancel">취소</button>
+      <button class="btn sm primary" id="exfSave">저장</button>
+    </div>`;
+  box.classList.add("on");
+  $("#exfCancel").onclick = () => box.classList.remove("on");
+  $("#exfSave").onclick = async () => {
+    const label = $("#exfLabel").value.trim();
+    const lambdaNm = Number($("#exfLambda").value);
+    if (!label || !isFinite(lambdaNm)) { toast("이름과 λ(nm)을 입력하세요"); return; }
+    const data = {
+      label,
+      sources: [{ lambdaNm, role: $("#exfRole").value, mode: $("#exfMode").value }],
+      note: $("#exfNote").value.trim(),
+    };
+    try { await Sync.savePreset("ex", existing ? existing.id : null, data); box.classList.remove("on"); toast("저장했습니다"); }
+    catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+}
+
+/* ---- 검출 채널 폼 ---- */
+function openEmForm(existing) {
+  const box = $("#emForm");
+  const x = existing || { label: "", detector: "apd", kindType: "band", centerNm: "", bwNm: "", minNm: "", maxNm: "", filter: "", note: "" };
+  box.innerHTML = `
+    <div class="grid-form">
+      <div class="field"><label>이름</label><input type="text" id="emfLabel" value="${esc(x.label)}" placeholder="예: APD@800/12"></div>
+      <div class="field"><label>검출기</label>
+        <select id="emfDet">
+          <option value="apd"${x.detector === "apd" ? " selected" : ""}>APD</option>
+          <option value="emccd"${x.detector === "emccd" ? " selected" : ""}>EMCCD</option>
+          <option value="snspd"${x.detector === "snspd" ? " selected" : ""}>SNSPD</option>
+        </select></div>
+      <div class="field"><label>형식</label>
+        <select id="emfKind">
+          <option value="band"${x.kindType === "band" ? " selected" : ""}>band (중심±반폭)</option>
+          <option value="range"${x.kindType === "range" ? " selected" : ""}>range (최소–최대)</option>
+          <option value="axis"${x.kindType === "axis" ? " selected" : ""}>axis (em이 축 자체 · PLE)</option>
+        </select></div>
+    </div>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>중심 (nm)</label><input type="number" id="emfCenter" value="${x.centerNm ?? ""}"></div>
+      <div class="field"><label>반폭 (nm)</label><input type="number" id="emfBw" value="${x.bwNm ?? ""}"></div>
+      <div class="field"><label>최소 (nm)</label><input type="number" id="emfMin" value="${x.minNm ?? ""}"></div>
+      <div class="field"><label>최대 (nm)</label><input type="number" id="emfMax" value="${x.maxNm ?? ""}"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>메모</label><input type="text" id="emfNote" value="${esc(x.note || "")}"></div>
+    <div class="rowbar" style="margin-top:10px"><span class="spacer"></span>
+      <button class="btn sm ghost" id="emfCancel">취소</button>
+      <button class="btn sm primary" id="emfSave">저장</button>
+    </div>`;
+  box.classList.add("on");
+  $("#emfCancel").onclick = () => box.classList.remove("on");
+  $("#emfSave").onclick = async () => {
+    const label = $("#emfLabel").value.trim();
+    if (!label) { toast("이름을 입력하세요"); return; }
+    const num = v => (v === "" ? null : Number(v));
+    const data = {
+      label, detector: $("#emfDet").value, kindType: $("#emfKind").value,
+      centerNm: num($("#emfCenter").value), bwNm: num($("#emfBw").value),
+      minNm: num($("#emfMin").value), maxNm: num($("#emfMax").value),
+      filter: "", note: $("#emfNote").value.trim(),
+    };
+    try { await Sync.savePreset("em", existing ? existing.id : null, data); box.classList.remove("on"); toast("저장했습니다"); }
+    catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+}
+
+/* ---------------- 탭 전환 ---------------- */
+function switchTab(name) {
+  state.tab = name;
+  $$(".tab-btn").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  $$(".panel").forEach(p => p.classList.toggle("on", p.id === "panel-" + name));
+}
+
+/* ---------------- 초기화 ---------------- */
+function bindUi() {
+  $("#btnGoogleLogin").onclick = () => Sync.login();
+  $("#btnLogout").onclick = () => Sync.logout();
+  $("#btnLogout2").onclick = () => Sync.logout();
+  $("#btnTheme").onclick = toggleTheme;
+  $("#btnThemeSettings").onclick = toggleTheme;
+  $("#lotSearch").oninput = renderMatrix;
+  $$(".tab-btn").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+  $("#btnAddEx").onclick = () => openExForm(null);
+  $("#btnAddEm").onclick = () => openEmForm(null);
+  $("#btnAddCol").onclick = openAddColumnModal;
+  $("#btnApplyTpl").onclick = openApplyTemplateModal;
+  $("#btnNewTpl").onclick = () => openTemplateEditor(null);
+  $$(".overlay").forEach(ov => ov.addEventListener("click", e => { if (e.target === ov) ov.classList.remove("on"); }));
+  $("#footBuild").textContent = "빌드 " + new Date().toISOString().slice(0, 10);
+}
+
+(function boot() {
+  bindUi();
+  Sync.tryRestore();
+})();
+</script>
+</body>
+</html>
