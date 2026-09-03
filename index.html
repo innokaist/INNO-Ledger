@@ -94,6 +94,9 @@ table.grid tr:last-child td{border-bottom:none}
 .badge.core{background:var(--blue-soft);color:#1D4ED8}
 .badge.shell{background:var(--amber-soft);color:#B45309}
 .badge.other{background:var(--chip);color:var(--sub)}
+.badge.pass{background:var(--green-soft);color:#047857}
+.badge.warn{background:var(--amber-soft);color:#B45309}
+.badge.fail{background:var(--risk-soft);color:#B91C1C}
 .formula{font-family:ui-monospace,Consolas,'Cascadia Mono',monospace;font-size:12.5px}
 .muted{color:var(--muted)}
 .empty{padding:30px 10px;text-align:center;color:var(--muted);font-size:13px}
@@ -202,6 +205,27 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 .runfileline{font-size:12px;color:var(--muted);padding:2px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
 .runfileline:last-child{border-bottom:none}
 .runfileline .btn{padding:1px 8px;font-size:11px}
+/* ---------- Phase 5: Prism 결과 임포트 / 자동판정 / 사유 태그 ---------- */
+.prismline{font-size:12px;color:var(--muted);padding:6px 0;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
+.prismline:last-child{border-bottom:none}
+.prismline .btn{padding:1px 8px;font-size:11px}
+.prismline .spark{display:block;flex:none}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:4px}
+.chiprow label{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500}
+.chiprow input{width:auto}
+/* ---------- Phase 6: 대시보드 / 소급 등록 마법사 ---------- */
+.dashgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.dashcard{background:var(--card);border:1px solid var(--line);border-radius:var(--r-s);padding:14px}
+.dashcard .dashnum{font-size:28px;font-weight:800;line-height:1}
+.dashcard .lbl{font-size:12.5px;font-weight:700;margin-top:4px}
+.dashcard .hint{margin-top:4px}
+.dashrow{padding:5px 0;border-bottom:1px solid var(--line);font-size:12.5px;cursor:pointer}
+.dashrow:last-child{border-bottom:none}
+.dashrow:hover{color:var(--primary)}
+.dashtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.dashtable th,.dashtable td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
+.dashtable th:first-child,.dashtable td:first-child{text-align:left}
+.wizgroup{border:1px solid var(--line);border-radius:var(--r-s);padding:12px;margin-bottom:8px}
 </style>
 </head>
 <body>
@@ -225,7 +249,7 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   <div class="topbar">
     <div class="brand">
       <span class="logo">INNO <b>Ledger</b></span>
-      <span class="tag">측정 계획 · 이력 · 보정 게이트 — Phase 4</span>
+      <span class="tag">측정 계획 · 이력 · 보정 게이트 — Phase 6</span>
     </div>
     <div class="gauge" title="첨부된 대표 파일 합계 — Firestore 프로젝트 inno-nanoil 공유 용량(NanoLab과 합산)의 일부">
       <span class="gaugetxt" id="gaugeTxt">저장공간 —</span>
@@ -243,7 +267,7 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
     <button class="tab-btn" data-tab="templates">계획 템플릿</button>
     <button class="tab-btn" data-tab="presets">프리셋</button>
     <button class="tab-btn" data-tab="calib">보정</button>
-    <button class="tab-btn soon" data-tab="dashboard">대시보드</button>
+    <button class="tab-btn" data-tab="dashboard">대시보드</button>
     <span class="spacer"></span>
     <button class="tab-btn" data-tab="settings">설정</button>
   </div>
@@ -338,7 +362,9 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
       <div id="calibListWrap"></div>
     </div>
   </div>
-  <div class="panel" id="panel-dashboard"><div class="soonpanel"><div class="ph">📊</div><b>커버리지 대시보드</b>Phase 6에서 제공됩니다 — 누락 · 판정대기 · 보정없음 집계.</div></div>
+  <div class="panel" id="panel-dashboard">
+    <div id="dashWrap"></div>
+  </div>
 
   <!-- ---- 설정 ---- -->
   <div class="panel" id="panel-settings">
@@ -365,6 +391,16 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
       </div>
     </div>
     <div class="card">
+      <h3>소급 등록 (기존 h5 일괄 정리)</h3>
+      <div class="hint" style="margin:8px 0">스캔된 h5 중 아직 어느 Run에도 연결되지 않은 파일을 측정종류·날짜·시간 간격으로 그룹핑해 보여줍니다. 그룹 단위로 lot·시편·조합을 한 번에 지정하면 셀·Run으로 전개됩니다 — 개별 파일마다 반복할 필요가 없습니다. 폴더를 먼저 연결·스캔해야 합니다.</div>
+      <button class="btn sm" id="btnRetroWizard">소급 등록 마법사 열기</button>
+    </div>
+    <div class="card">
+      <h3>아카이브 내보내기</h3>
+      <div class="hint" style="margin:8px 0">각 셀의 대표(채택) Run 원본 파일을 <span class="mono">lot/측정종류/여기구성_검출채널/</span> 구조로 로컬 폴더에 복사합니다. 이 구조를 갖추면 클라우드 첨부는 버려도 되는 열람 캐시로 격하되어 용량 압박이 사라집니다. <b>폴더 스캔으로 얻은(핸들이 있는) 파일만</b> 복사할 수 있습니다 — 수동으로 개별 선택해 연결한 파일은 원본을 다시 열 수 없어 건너뜁니다.</div>
+      <button class="btn sm" id="btnExportArchive">대표 파일 내보내기</button>
+    </div>
+    <div class="card">
       <h3>저장공간</h3>
       <div class="hint" style="margin:8px 0" id="capacityHint">—</div>
       <div class="gaugebar" style="width:100%;height:8px;margin-top:6px"><i id="settGaugeBar"></i></div>
@@ -376,7 +412,7 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   </div>
 
   <div class="foot">
-    <span>INNO Ledger · Phase 4 · v0.4.0</span>
+    <span>INNO Ledger · Phase 6 · v0.6.0</span>
     <span id="footBuild"></span>
   </div>
 </div>
@@ -396,6 +432,11 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   <div class="modalcard" id="fileModal"></div>
 </div>
 
+<!-- ---- Run 판정 모달 (Phase 5) ---- -->
+<div class="overlay" id="verdictOverlay">
+  <div class="modalcard" id="verdictModal"></div>
+</div>
+
 <!-- ---- 조합 추가 모달 ---- -->
 <div class="overlay" id="colOverlay">
   <div class="modalcard" id="colModal"></div>
@@ -406,17 +447,26 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   <div class="modalcard" id="tplApplyModal"></div>
 </div>
 
+<!-- ---- 소급 등록 마법사 (Phase 6) ---- -->
+<div class="overlay" id="retroOverlay">
+  <div class="modalcard wide" id="retroModal"></div>
+</div>
+
 <div id="toast"></div>
 
 <script>
 "use strict";
 /* =====================================================================
- * INNO Ledger — Phase 4
- * 이어서: h5 폴더 스캔(File System Access API) + 파일명·시각 기반 후보 매칭
- *        + Run에 원본 파일 링크(T1 지문) + 클라우드 첨부(T3, gzip+base64+청크)
- *        + 용량 계기판
+ * INNO Ledger — Phase 6
+ * 이어서: 소급 등록 마법사(스캔된 h5 중 미연결분을 측정종류·날짜·시간간격으로 그룹핑해
+ *        그룹 단위로 lot·시편·조합을 지정 → 셀·Run으로 일괄 전개) + 대시보드(판정대기·
+ *        재측정필요·보정없음·마운트미지정 카운터 + 측정종류별 현황표) + 아카이브 내보내기
+ *        (대표 Run 원본을 lot/측정종류/조합 구조로 로컬 폴더에 복사).
+ *        Spot 매칭(§6)은 이번 Phase에서도 착수하지 않음 — Run.stage가 비어 있어 Phase 7
+ *        (INNO Optics h5 attr 추가) 이후에나 가능(§9 남은 미결 참고).
  * Phase 1(로그인/lot 읽기/프리셋) + Phase 2(매트릭스/셀 상태기계/계획 템플릿)
- * + Phase 3(Run 티켓/마운트/보정 게이트)에 이어 붙였습니다.
+ * + Phase 3(Run 티켓/마운트/보정 게이트) + Phase 4(h5 폴더 스캔/파일 링크·첨부/용량 계기판)
+ * + Phase 5(Prism 결과 임포트/자동 게이트/판정 UI)에 이어 붙였습니다.
  * 앵커 주석(PHASE n:)을 다음 확장 지점으로 사용하세요.
  * ===================================================================== */
 
@@ -473,7 +523,7 @@ const STATUS_META = {
   none:    { label: "—",     cls: "none" },
   planned: { label: "계획",   cls: "planned" },
   ticket:  { label: "예약",   cls: "ticket" },
-  pending: { label: "대기",   cls: "pending" },
+  pending: { label: "판정대기", cls: "pending" },
   success: { label: "성공",   cls: "success" },
   retry:   { label: "재측정", cls: "retry" },
 };
@@ -541,6 +591,13 @@ function fmtBytes(n) {
   if (n < 1024) return n + " B";
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
   return (n / 1024 / 1024).toFixed(2) + " MB";
+}
+/* PHASE 5: 넓은 동적범위(파워 W 등)를 다루는 유효숫자 포맷 — 아주 작거나 큰 값은 지수표기 */
+function fmtSig(v, sig) {
+  if (v == null || !isFinite(v)) return "—";
+  const av = Math.abs(v);
+  if (av !== 0 && (av < 1e-3 || av >= 1e5)) return v.toExponential(sig ? sig - 1 : 2);
+  return String(Number(v.toPrecision(sig || 4)));
 }
 
 /* ---------------- theme ---------------- */
@@ -849,6 +906,111 @@ function renderCapacityGauge() {
     (pct >= 80 ? `<br><b style="color:var(--warn)">⚠️ 80% 이상 — 오래된 첨부를 "첨부 해제"하거나(로컬 링크는 유지됨) 정리를 고려하세요.</b>` : "");
 }
 
+/* ---------------- PHASE 5: Prism power scan 분석 JSON 파싱 ----------------
+ * INNO Prism의 "JSON" 내보내기(exportPowerJson, src/app.js)가 실제로 만드는 형식을 그대로
+ * 소비한다: { app, engine, file, settings, calibration, densityFactor_mWcm2_per_W,
+ *            manualSlope, analysis:{ paReport, paSource, paGridLimited, sMaxIsLowerBound,
+ *            thresholdP, saturationP, background, chosenOrder, data:{P,I,nReps,...},
+ *            grid, modelCurve, quality:{score,band,reportable,detail:{decades,ptsPerDec,...}},
+ *            diag:{ci:{sMax:[lo,hi], threshold:[lo,hi]}} (부트스트랩을 돌렸을 때만 존재) } }.
+ * 현재는 power scan 분석 JSON만 인식한다 — 다른 측정종류(TCSPC/rise time 등)의 Prism 내보내기는
+ * 스키마가 달라 지원하지 않음(§3 L1 게이트 예시 자체가 power scan 기준이라 범위를 맞췄다). */
+function parsePrismPowerScanJson(json) {
+  const a = json && json.analysis;
+  if (!a || typeof a.paReport !== "number" || !isFinite(a.paReport)) {
+    throw new Error("INNO Prism의 power scan 분석 JSON이 아닙니다 (analysis.paReport 없음) — Prism의 \"JSON\" 내보내기로 받은 파일인지 확인하세요");
+  }
+  const q = a.quality || null;
+  const nReps = (a.data && Array.isArray(a.data.nReps)) ? a.data.nReps : [];
+  const minReps = nReps.length ? Math.min.apply(null, nReps) : null;
+  const ciPair = a.diag && a.diag.ci && a.diag.ci.sMax;
+  const ciRelHalfWidth = (Array.isArray(ciPair) && isFinite(ciPair[0]) && isFinite(ciPair[1]) && isFinite(a.sMax) && Math.abs(a.sMax) > 1e-12)
+    ? (ciPair[1] - ciPair[0]) / 2 / Math.abs(a.sMax) : null;
+  return {
+    importedAt: Date.now(),
+    importedFile: json.file || "",
+    engine: json.engine || ("PrismFit " + (a.version || "")),
+    paReport: a.paReport,
+    paSource: a.paSource === "jump" ? "jump" : "resolved",
+    paGridLimited: !!a.paGridLimited,
+    threshold: isFinite(a.thresholdP) ? a.thresholdP : null,
+    saturation: isFinite(a.saturationP) ? a.saturationP : null,
+    background: isFinite(a.background) ? a.background : null,
+    model: "H" + (a.chosenOrder != null ? a.chosenOrder : "?"),
+    censored: !!a.sMaxIsLowerBound,
+    quality: q ? { score: q.score, band: q.band, reportable: !!q.reportable } : null,
+    decades: (q && q.detail && isFinite(q.detail.decades)) ? q.detail.decades : null,
+    ptsPerDecade: (q && q.detail && isFinite(q.detail.ptsPerDec)) ? q.detail.ptsPerDec : null,
+    minReps,
+    ciRelHalfWidth,
+    spark: buildPrismSpark(a),
+  };
+}
+/** len개 인덱스 중 n개를 등간격으로 뽑는다(그대로면 원본 유지) — Firestore 문서에
+ * 원본 배열 전체를 넣지 않고 작은 스파크라인용 표본만 저장하기 위함. */
+function downsampleIdx(len, n) {
+  const out = [];
+  if (len <= n) { for (let i = 0; i < len; i++) out.push(i); return out; }
+  for (let i = 0; i < n; i++) out.push(Math.round(i * (len - 1) / (n - 1)));
+  return out;
+}
+/** T2 썸네일 대체: Prism JSON에 이미 있는 원시 데이터점(P,I)과 모델곡선(grid,modelCurve)에서
+ * 소량만 뽑아 저장 — h5를 열지 않고도 셀 모달에서 로그-로그 스파크라인을 그릴 수 있다. */
+function buildPrismSpark(a) {
+  try {
+    const P = (a.data && a.data.P) || [], I = (a.data && a.data.I) || [];
+    const grid = a.grid || [], curve = a.modelCurve || [];
+    const round = v => (isFinite(v) ? Number(Number(v).toPrecision(5)) : null);
+    const ri = downsampleIdx(P.length, 40), ci = downsampleIdx(grid.length, 30);
+    return {
+      P: ri.map(i => round(P[i])), I: ri.map(i => round(I[i])),
+      curveP: ci.map(i => round(Math.pow(10, grid[i]))), curveI: ci.map(i => round(curve[i])),
+    };
+  } catch (e) { return null; }
+}
+/** 작은 인라인 로그-로그 SVG — 원본 데이터점(점) + 모델곡선(선). 저장된 값이 전부 숫자라 별도
+ * 이스케이프가 필요 없다. */
+function sparkSvgHtml(spark) {
+  if (!spark || !spark.curveP || !spark.curveP.length) return "";
+  const W = 168, H = 44, PAD = 3;
+  const allP = spark.curveP.concat(spark.P || []).filter(v => isFinite(v) && v > 0);
+  const allI = spark.curveI.concat(spark.I || []).filter(v => isFinite(v) && v > 0);
+  if (!allP.length || !allI.length) return "";
+  const lx = allP.map(v => Math.log10(v)), ly = allI.map(v => Math.log10(v));
+  const minX = Math.min.apply(null, lx), maxX = Math.max.apply(null, lx);
+  const minY = Math.min.apply(null, ly), maxY = Math.max.apply(null, ly);
+  const sx = v => PAD + (maxX > minX ? (Math.log10(v) - minX) / (maxX - minX) : 0.5) * (W - 2 * PAD);
+  const sy = v => H - PAD - (maxY > minY ? (Math.log10(Math.max(v, 1e-12)) - minY) / (maxY - minY) : 0.5) * (H - 2 * PAD);
+  const curvePts = spark.curveP.map((p, i) => sx(p).toFixed(1) + "," + sy(spark.curveI[i]).toFixed(1)).join(" ");
+  const dots = (spark.P || []).map((p, i) => `<circle cx="${sx(p).toFixed(1)}" cy="${sy(spark.I[i]).toFixed(1)}" r="1.4" fill="var(--sub)" fill-opacity="0.55"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="spark">` +
+    `<polyline points="${curvePts}" fill="none" stroke="var(--primary)" stroke-width="1.6"/>${dots}</svg>`;
+}
+/* ---------------- PHASE 5: 자동 게이트(L1) — 현재 power_scan 1종만 ----------------
+ * §3 L1 예시 6항목 중 "다크 게이트 초과 데이터점 비율"은 제외했다 — Prism JSON에 바로 쓸 수
+ * 있는 완성값이 없고, 재계산하려면 Prism 내부 다크게이트 로직(paDarkAndGate)을 그대로
+ * 다시 구현해야 하는데 그러면 두 구현이 갈라질 위험이 있어 이번 Phase에서는 손대지 않았다.
+ * 나머지 5항목의 구체 임계값은 실측 데이터로 조정이 필요한 초기값이다(§9 "남은 미결" 참고). */
+const POWER_SCAN_GATE = { minDecades: 1.0, minReps: 2, maxCiRelHalfWidth: 0.5 };
+const VERDICT_TAGS = ["신호부족", "포화", "드리프트", "광손상", "보정누락", "범위부족", "장비이상", "시료오염", "중복"];
+function computeAutoGate(prism, calibStatus) {
+  const checks = [
+    { id: "decades", label: `측정 범위 ≥ ${POWER_SCAN_GATE.minDecades} decade`,
+      na: prism.decades == null, ok: prism.decades == null ? true : prism.decades >= POWER_SCAN_GATE.minDecades, value: prism.decades },
+    { id: "replicate", label: `반복측정 ≥ ${POWER_SCAN_GATE.minReps}회`,
+      na: prism.minReps == null, ok: prism.minReps == null ? true : prism.minReps >= POWER_SCAN_GATE.minReps, value: prism.minReps },
+    { id: "censor", label: "edge-censoring 아님",
+      na: false, ok: !prism.censored, value: prism.censored },
+    { id: "bootstrap", label: `부트스트랩 CI 폭 ≤ ${Math.round(POWER_SCAN_GATE.maxCiRelHalfWidth * 100)}%`,
+      na: prism.ciRelHalfWidth == null, ok: prism.ciRelHalfWidth == null ? true : prism.ciRelHalfWidth <= POWER_SCAN_GATE.maxCiRelHalfWidth, value: prism.ciRelHalfWidth },
+    { id: "calib", label: "보정 세션 링크 존재",
+      na: false, ok: calibStatus === "linked", value: calibStatus },
+  ];
+  const failed = checks.filter(c => !c.na && !c.ok).length;
+  const verdict = failed >= 2 ? "fail" : failed === 1 ? "warn" : "pass";
+  return { verdict, checks };
+}
+
 /* ---------------- Sync: Firebase 연결 + Firestore I/O ---------------- */
 const Sync = (() => {
   let unsubs = [];
@@ -985,6 +1147,7 @@ const Sync = (() => {
       renderPresets();
       renderMeasChips();
       renderMatrix();
+      renderDashboard();
     }, err => { console.error(err); toast("프리셋 읽기 오류: " + friendly(err), 4000); }));
   }
 
@@ -995,6 +1158,7 @@ const Sync = (() => {
       state.cells = cells;
       renderMeasChips();
       renderMatrix();
+      renderDashboard();
     }, err => { console.error(err); toast("셀 읽기 오류: " + friendly(err), 4000); }));
   }
 
@@ -1027,6 +1191,7 @@ const Sync = (() => {
       snap.docs.forEach(d => { runs[d.id] = Object.assign({ id: d.id }, d.data()); });
       state.runs = runs;
       renderCapacityGauge();
+      renderDashboard();
     }, err => { console.error(err); toast("Run 읽기 오류: " + friendly(err), 4000); }));
   }
   function subscribeSettings() {
@@ -1159,6 +1324,82 @@ const Sync = (() => {
     await batch.commit();
   }
 
+  /* ---- PHASE 5: Prism 결과 임포트 + 자동 게이트 + 사람 판정 ----
+   * prism/autoGate/verdict는 매번 "전체 교체"로 쓴다(부분 갱신 아님) — Phase 4의 file 필드와
+   * 달리 여기서는 항상 완전한 객체를 통째로 새로 만들어 넣으므로 dot-path가 필요 없다. */
+  async function importPrismResult(runId, cellId, prism, autoGate) {
+    const batch = state.fb.db.batch();
+    batch.set(col("opt_runs").doc(runId), { prism, autoGate }, { merge: true });
+    const cell = state.cells[cellId];
+    if (cell && cell.status === "ticket") batch.set(col("opt_cells").doc(cellId), { status: "pending" }, { merge: true });
+    await batch.commit();
+  }
+  /** 채택: 이 Run을 셀의 대표로 지정(이전 대표가 있었고 "채택" 상태였다면 "참고"로 강등).
+   * 폐기: 이 Run이 현재 대표였을 때만 셀을 "재측정필요"로 되돌리고 대표 지정을 해제한다
+   * (대표가 아닌 Run을 폐기해도 셀 상태는 건드리지 않음 — 단순하고 예측 가능하게 유지). */
+  async function setRunVerdict(runId, cellId, verdict) {
+    const batch = state.fb.db.batch();
+    batch.set(col("opt_runs").doc(runId), { verdict }, { merge: true });
+    const cell = state.cells[cellId];
+    if (verdict.state === "adopted") {
+      if (cell && cell.repRunId && cell.repRunId !== runId) {
+        const prevRun = state.runs[cell.repRunId];
+        if (prevRun && prevRun.verdict && prevRun.verdict.state === "adopted") {
+          batch.set(col("opt_runs").doc(cell.repRunId), { verdict: Object.assign({}, prevRun.verdict, { state: "reference" }) }, { merge: true });
+        }
+      }
+      batch.set(col("opt_cells").doc(cellId), { status: "success", repRunId: runId }, { merge: true });
+    } else if (verdict.state === "discarded" && cell && cell.repRunId === runId) {
+      batch.set(col("opt_cells").doc(cellId), { status: "retry", repRunId: "" }, { merge: true });
+    }
+    await batch.commit();
+  }
+
+  /* ---- PHASE 6: 소급 등록 (설계 확정본 §8) ----
+   * entries: [{cellId, lotId, measTypeId, exPresetId, emPresetId, specimen, file:{...}, acquiredAt}]
+   * 그룹핑·검증은 호출측(openRetroWizard/submitRetroWizard)에서 이미 끝낸 상태로 넘어온다.
+   * 셀이 없으면 새로 만들고(status:"ticket" — 실측 파일은 있지만 아직 자동/사람 판정 전이라는 뜻),
+   * 이미 있는 셀은 "미계획/계획됨"일 때만 "ticket"으로 올리고 그 이상 진행된 셀은 건드리지 않는다.
+   * mountId/calibId는 항상 비워 두고 calibStatus는 "none"으로 고정 — 소급 등록은 마운트 세션도
+   * 보정 세션도 사후에 알 수 없으므로, 대시보드의 "마운트 미지정"·"보정없음" 집계에 그대로 잡히는
+   * 것이 정직한 표현이다(§2.4·§4 참고). Firestore batch 500건 한도를 피해 400개 단위로 나눠 커밋. */
+  async function retroRegisterRuns(entries) {
+    let cellsCreated = 0, runsCreated = 0;
+    const CHUNK = 400;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const slice = entries.slice(i, i + CHUNK);
+      const batch = state.fb.db.batch();
+      const seenCells = new Set();
+      slice.forEach(en => {
+        if (!seenCells.has(en.cellId)) {
+          seenCells.add(en.cellId);
+          const existing = state.cells[en.cellId];
+          if (!existing) {
+            batch.set(col("opt_cells").doc(en.cellId), {
+              lotId: en.lotId, measTypeId: en.measTypeId, exPresetId: en.exPresetId, emPresetId: en.emPresetId,
+              status: "ticket", priority: "mid", note: "",
+              plannedAt: Date.now(), plannedBy: state.fb.user.email || "",
+            });
+            cellsCreated++;
+          } else if (existing.status === "none" || existing.status === "planned") {
+            batch.set(col("opt_cells").doc(en.cellId), { status: "ticket" }, { merge: true });
+          }
+        }
+        const runRef = col("opt_runs").doc();
+        batch.set(runRef, {
+          cellId: en.cellId, lotId: en.lotId, specimen: en.specimen || "",
+          mountId: "", calibId: "", calibStatus: "none",
+          issuedAt: en.acquiredAt, issuedBy: state.fb.user.email || "", acquiredAt: en.acquiredAt,
+          retro: true,
+          file: Object.assign({ attached: false, blobChunks: 0, blobBytes: 0 }, en.file),
+        });
+        runsCreated++;
+      });
+      await batch.commit();
+    }
+    return { cellsCreated, runsCreated };
+  }
+
   async function onLoggedIn() {
     $("#loginGate").classList.add("hidden");
     $("#app").classList.add("on");
@@ -1189,6 +1430,7 @@ const Sync = (() => {
     login, logout, tryRestore, col, savePreset, deletePreset, saveCell, deleteCell, saveTemplate, deleteTemplate, applyTemplateToLots,
     startMount, endMount, saveCalib, deleteCalib, issueRun, cancelRun, saveSettings,
     linkRunFile, unlinkRunFile, attachRunBlob, detachRunBlob,
+    importPrismResult, setRunVerdict, retroRegisterRuns,
   };
 })();
 
@@ -1551,6 +1793,7 @@ function openCellModal(lotId, measId, exId, emId) {
         ${cellRuns.map(r => `<div class="runrow">
           <span class="mono">${esc(r.id.slice(0, 8))}</span>
           <span class="badge ${r.calibStatus === "linked" ? "core" : r.calibStatus === "expired" ? "shell" : "other"}">${esc(r.calibStatus || "none")}</span>
+          ${r.retro ? `<span class="badge other" title="소급 등록 마법사로 등록됨">소급</span>` : ""}
           <span>${fmtDateTime(r.issuedAt)}</span>
           <span class="spacer"></span>
           <button class="btn sm" data-copyrun="${esc(r.id)}" style="padding:2px 8px">복사</button>
@@ -1560,7 +1803,8 @@ function openCellModal(lotId, measId, exId, emId) {
           ${!r.file ? `📎 파일 없음 <button class="btn" data-linkfile="${esc(r.id)}">연결</button>` :
             r.file.attached ? `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.blobBytes)} 압축 · 클라우드 첨부됨)</span> <button class="btn" data-detachfile="${esc(r.id)}">첨부 해제</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>` :
             `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.bytes)} · 로컬 링크)</span> <button class="btn" data-attachfile="${esc(r.id)}">클라우드에 첨부</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>`}
-        </div>`).join("")}
+        </div>
+        <div class="prismline">${prismBlockHtml(r)}</div>`).join("")}
       </div>` : `<div class="hint" style="margin-top:8px">아직 발급된 Run이 없습니다.</div>`}
     </div>`;
   }
@@ -1672,6 +1916,13 @@ function openCellModal(lotId, measId, exId, emId) {
         openCellModal(lotId, measId, exId, emId);
       } catch (e) { toast("실패: " + (e.message || e), 4000); }
     });
+    /* PHASE 5: Prism 결과 임포트 + 판정 */
+    $$("[data-importprism]", modal).forEach(b => b.onclick = () => {
+      openPrismImportPicker(b.dataset.importprism, cid, [lotId, measId, exId, emId]);
+    });
+    $$("[data-verdict]", modal).forEach(b => b.onclick = () => {
+      openVerdictModal(b.dataset.verdict, cid, b.dataset.vstate, [lotId, measId, exId, emId]);
+    });
   }
   $("#cmSave").onclick = async () => {
     const newStatus = $("#cmStatus").value;
@@ -1767,6 +2018,110 @@ async function doAttachRunFile(run, reopenArgs) {
     toast("클라우드에 첨부했습니다");
     if (reopenArgs) openCellModal(...reopenArgs);
   } catch (e) { toast("첨부 실패: " + (e.message || e), 4000); }
+}
+
+/* ---------------- PHASE 5: Run 판정 카드(Prism 결과 요약 + 자동판정 + 사람 판정) ---------------- */
+function prismBlockHtml(r) {
+  if (!r.prism) return `📊 Prism 결과 없음 <button class="btn" data-importprism="${esc(r.id)}">가져오기</button>`;
+  const p = r.prism;
+  const g = r.autoGate || computeAutoGate(p, r.calibStatus);
+  const gcls = g.verdict === "pass" ? "pass" : g.verdict === "warn" ? "warn" : "fail";
+  const glabel = g.verdict === "pass" ? "통과" : g.verdict === "warn" ? "경고" : "미달";
+  const failedLabels = g.checks.filter(c => !c.na && !c.ok).map(c => c.label);
+  const gtitle = failedLabels.length ? "미달 항목: " + failedLabels.join(", ") : "모든 항목 통과(정보 없는 항목 제외)";
+  const vd = r.verdict;
+  const vdBadge = vd
+    ? `<span class="badge ${vd.state === "adopted" ? "pass" : vd.state === "discarded" ? "fail" : "other"}">${vd.state === "adopted" ? "채택(대표)" : vd.state === "discarded" ? "폐기" : "참고"}</span>`
+    : `<span class="badge other">판정 대기</span>`;
+  return `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="mono">PA${p.paGridLimited ? " ≥" : " ="} ${fmtSig(p.paReport)}</span>
+      <span class="muted">${esc(p.model)} · ${p.paSource === "jump" ? "미분해 점프" : "분해 front"}${p.censored ? " · edge-censored" : ""}</span>
+      <span class="badge ${gcls}" title="${esc(gtitle)}">자동판정 ${glabel}</span>
+      ${vdBadge}
+      <span class="spacer"></span>
+      <button class="btn" data-importprism="${esc(r.id)}">다시 가져오기</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      ${sparkSvgHtml(p.spark)}
+      <div class="muted" style="font-size:11.5px;line-height:1.5">
+        임계 ${fmtSig(p.threshold)} W · 포화 ${p.saturation != null ? fmtSig(p.saturation) + " W" : "관측 안 됨"}<br>
+        품질 ${p.quality ? esc(p.quality.band) + " (" + p.quality.score.toFixed(0) + "/100)" : "—"}
+      </div>
+    </div>
+    <div class="rowbar">
+      <span class="spacer"></span>
+      <button class="btn sm" data-verdict="${esc(r.id)}" data-vstate="adopted">채택(대표)</button>
+      <button class="btn sm" data-verdict="${esc(r.id)}" data-vstate="reference">참고</button>
+      <button class="btn sm danger" data-verdict="${esc(r.id)}" data-vstate="discarded">폐기</button>
+    </div>`;
+}
+/** Prism에서 내보낸 *_analysis.json 파일을 선택해 이 Run에 바로 임포트한다. 별도 모달 없이
+ * 파일 선택창만 띄우는 이유: 후보 목록을 보여줄 게 없다(사용자가 이미 특정 Run 행에서
+ * 눌렀으므로 대상 Run은 이미 정해져 있음) — 파일명이 Run에 연결된 h5와 다르면 확인만 한다. */
+function openPrismImportPicker(runId, cellId, reopenArgs) {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = async () => {
+    const file = inp.files[0];
+    if (!file) return;
+    try {
+      const json = JSON.parse(await file.text());
+      const prism = parsePrismPowerScanJson(json);
+      const run = state.runs[runId];
+      if (run && run.file && run.file.name && prism.importedFile && run.file.name !== prism.importedFile) {
+        if (!confirm(`연결된 파일명(${run.file.name})과 이 JSON의 원본 파일명(${prism.importedFile})이 다릅니다.\n그래도 이 Run에 가져올까요?`)) return;
+      }
+      const autoGate = computeAutoGate(prism, run ? run.calibStatus : "none");
+      await Sync.importPrismResult(runId, cellId, prism, autoGate);
+      toast("Prism 결과를 가져왔습니다 — 자동판정: " + (autoGate.verdict === "pass" ? "통과" : autoGate.verdict === "warn" ? "경고" : "미달"));
+      if (reopenArgs) openCellModal(...reopenArgs);
+    } catch (e) { toast("가져오기 실패: " + (e.message || e), 4500); }
+  };
+  inp.click();
+}
+/** 판정 모달 — 채택/참고/폐기 + 고정 어휘 사유 태그. 폐기하거나 자동판정과 반대로 채택할 때는
+ * 태그를 1개 이상 골라야 저장된다(§3 "자동 게이트와 사람 판정이 불일치하면 사유 입력을 강제"). */
+function openVerdictModal(runId, cellId, initialState, reopenArgs) {
+  const run = state.runs[runId];
+  if (!run) return;
+  const autoGate = run.autoGate || null;
+  const curVerdict = run.verdict || null;
+  const modal = $("#verdictModal");
+  const agLabel = autoGate ? (autoGate.verdict === "pass" ? "통과" : autoGate.verdict === "warn" ? "경고" : "미달") : "—";
+  modal.innerHTML = `
+    <h3>Run 판정</h3>
+    <div class="sub">${esc(run.id.slice(0, 8))} · 자동판정: ${esc(agLabel)}</div>
+    <div class="field" style="margin-top:8px"><label>상태</label>
+      <select id="vdState">
+        <option value="adopted"${initialState === "adopted" ? " selected" : ""}>채택 (이 셀의 대표로 지정)</option>
+        <option value="reference"${initialState === "reference" ? " selected" : ""}>참고</option>
+        <option value="discarded"${initialState === "discarded" ? " selected" : ""}>폐기</option>
+      </select></div>
+    <div class="field" style="margin-top:8px"><label>사유 태그</label>
+      <div class="chiprow">${VERDICT_TAGS.map(t => `<label><input type="checkbox" value="${esc(t)}"${curVerdict && (curVerdict.tags || []).includes(t) ? " checked" : ""}> ${esc(t)}</label>`).join("")}</div>
+      <div class="hint" style="margin-top:4px">폐기하거나, 자동판정과 반대로("미달"인데 채택 등) 판정할 때는 사유 태그가 1개 이상 필요합니다.</div></div>
+    <div class="field" style="margin-top:8px"><label>메모</label><textarea id="vdNote" rows="2">${esc((curVerdict && curVerdict.note) || "")}</textarea></div>
+    <div class="rowbar"><span class="spacer"></span>
+      <button class="btn sm ghost" id="vdCancel">취소</button>
+      <button class="btn sm primary" id="vdSave">저장</button>
+    </div>`;
+  openOverlay("verdictOverlay");
+  $("#vdCancel").onclick = () => closeOverlay("verdictOverlay");
+  $("#vdSave").onclick = async () => {
+    const stateVal = $("#vdState").value;
+    const tags = $$(".chiprow input:checked", modal).map(el => el.value);
+    const note = $("#vdNote").value.trim();
+    const mismatch = autoGate && ((stateVal === "discarded" && autoGate.verdict === "pass") || (stateVal === "adopted" && autoGate.verdict === "fail"));
+    const required = stateVal === "discarded" || mismatch;
+    if (required && !tags.length) { toast("사유 태그를 1개 이상 선택하세요", 3200); return; }
+    try {
+      await Sync.setRunVerdict(runId, cellId, { state: stateVal, tags, note, by: state.fb.user.email || "", at: Date.now() });
+      closeOverlay("verdictOverlay");
+      toast("판정을 저장했습니다");
+      if (reopenArgs) openCellModal(...reopenArgs);
+    } catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
 }
 
 /* ---------------- 조합 추가 모달 ---------------- */
@@ -2061,6 +2416,234 @@ function openEmForm(existing) {
   };
 }
 
+/* ---------------- PHASE 6: 대시보드 (설계 확정본 §2.5 · §2.4 · §4에서 예고된 카운터) ---------------- */
+function openCellModalById(cid) {
+  const c = state.cells[cid];
+  if (!c) { toast("셀을 찾을 수 없습니다(삭제되었을 수 있습니다)"); return; }
+  openCellModal(c.lotId, c.measTypeId, c.exPresetId, c.emPresetId);
+}
+function renderDashboard() {
+  const wrap = $("#dashWrap");
+  if (!wrap) return;
+  const cells = Object.values(state.cells);
+  const runs = Object.values(state.runs);
+  const pendingCells = cells.filter(c => c.status === "pending");
+  const retryCells = cells.filter(c => c.status === "retry");
+  const noCalibRuns = runs.filter(r => !r.calibStatus || r.calibStatus === "none");
+  const noMountRuns = runs.filter(r => !r.mountId);
+
+  function cellRow(c) {
+    const lot = state.lots.find(l => l.id === c.lotId);
+    return `<div class="dashrow" data-opencell="${esc(c.id)}">${esc(lotLabel(lot || {}))} · ${esc(measLabel(c.measTypeId))} · ${esc(exLabel(c.exPresetId))}/${esc(emLabel(c.emPresetId))}</div>`;
+  }
+  function runRow(r) {
+    const c = state.cells[r.cellId];
+    const lot = c ? state.lots.find(l => l.id === c.lotId) : null;
+    const openAttr = c ? ` data-opencell="${esc(c.id)}"` : "";
+    return `<div class="dashrow"${openAttr}>${c ? `${esc(lotLabel(lot || {}))} · ${esc(measLabel(c.measTypeId))}` : "(셀 삭제됨)"} · ${fmtDate(r.issuedAt)} · <span class="mono">${esc((r.id || "").slice(0, 8))}</span>${r.retro ? ` <span class="badge other">소급</span>` : ""}</div>`;
+  }
+  function section(title, count, items, mapper) {
+    const shown = items.slice(0, 12).map(mapper).join("");
+    const more = items.length > 12 ? `<div class="hint" style="margin-top:4px">외 ${items.length - 12}건</div>` : "";
+    return `<div class="card" style="margin-top:14px"><h3>${title} (${count})</h3>${items.length ? shown + more : `<div class="hint">없음</div>`}</div>`;
+  }
+
+  const measRows = state.presets.meas.map(m => {
+    const mc = { none: 0, planned: 0, ticket: 0, pending: 0, success: 0, retry: 0 };
+    cells.forEach(c => { if (c.measTypeId === m.measId && mc[c.status] != null) mc[c.status]++; });
+    const total = mc.planned + mc.ticket + mc.pending + mc.success + mc.retry;
+    if (!total) return "";
+    return `<tr><td>${esc(m.label)}</td><td>${mc.planned}</td><td>${mc.ticket}</td><td>${mc.pending}</td><td>${mc.success}</td><td>${mc.retry}</td></tr>`;
+  }).filter(Boolean).join("");
+
+  wrap.innerHTML = `
+    <div class="dashgrid">
+      <div class="dashcard"><div class="dashnum">${pendingCells.length}</div><div class="lbl">판정대기 셀</div><div class="hint">Prism 결과는 들어왔지만 아직 채택/참고/폐기를 정하지 않은 셀</div></div>
+      <div class="dashcard"><div class="dashnum" style="color:var(--risk)">${retryCells.length}</div><div class="lbl">재측정필요 셀</div><div class="hint">대표 Run이 폐기되어 다시 측정이 필요한 셀</div></div>
+      <div class="dashcard"><div class="dashnum" style="color:var(--warn)">${noCalibRuns.length}</div><div class="lbl">보정없음 Run</div><div class="hint">보정 세션이 연결되지 않은 채 발급·등록된 Run — 되살릴 수 없을 수 있음</div></div>
+      <div class="dashcard"><div class="dashnum" style="color:var(--warn)">${noMountRuns.length}</div><div class="lbl">마운트 미지정 Run</div><div class="hint">활성 마운트 없이 발급되었거나 소급 등록된 Run — Spot 매칭에서 제외됨</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3>측정종류별 현황</h3>
+      <div style="overflow-x:auto"><table class="dashtable"><thead><tr><th>측정종류</th><th>계획</th><th>예약</th><th>판정대기</th><th>성공</th><th>재측정</th></tr></thead>
+      <tbody>${measRows || `<tr><td colspan="6" class="hint">아직 계획된 셀이 없습니다</td></tr>`}</tbody></table></div>
+    </div>
+    ${section("판정대기", pendingCells.length, pendingCells, cellRow)}
+    ${section("재측정필요", retryCells.length, retryCells, cellRow)}
+    ${section("보정없음 Run", noCalibRuns.length, noCalibRuns, runRow)}
+    ${section("마운트 미지정 Run", noMountRuns.length, noMountRuns, runRow)}
+  `;
+  $$("[data-opencell]", wrap).forEach(el => el.onclick = () => openCellModalById(el.dataset.opencell));
+}
+
+/* ---------------- PHASE 6: 소급 등록 마법사 (설계 확정본 §8) ----------------
+ * 폴더 스캔 결과(state.scanFiles) 중 아직 어느 Run에도 연결되지 않은 파일을 묶어 그룹 단위로
+ * lot·시편·조합을 지정한다. 설계 문서 원안은 "하드웨어 설정 유사도"까지 자동으로 묶는 것이었지만,
+ * Phase 4와 같은 이유로(h5 attr을 읽지 않음) 실제로는 "측정종류(파일명에서 파싱, 실패하면 직접
+ * 선택) + 날짜 + 시간 간격(SESSION_GAP_MS 이상 벌어지면 새 세션)"으로만 묶는다 — 완전한 자동
+ * 그룹핑이 아니라 "한 화면에서 묶어 보여주는" 수준의 보조다. */
+const SESSION_GAP_MS = 4 * 60 * 60 * 1000; // 4시간 이상 비면 새 세션(그룹)으로 분리
+function alreadyLinkedRelPaths() {
+  const s = new Set();
+  Object.values(state.runs).forEach(r => { if (r.file && r.file.relPath) s.add(r.file.relPath); });
+  return s;
+}
+function buildRetroGroups() {
+  const linked = alreadyLinkedRelPaths();
+  const pending = state.scanFiles.filter(f => f.relPath && !linked.has(f.relPath));
+  const byMeas = {};
+  pending.forEach(f => { (byMeas[f.measId || ""] = byMeas[f.measId || ""] || []).push(f); });
+  const groups = [];
+  Object.keys(byMeas).forEach(measId => {
+    const files = byMeas[measId].slice().sort((a, b) => a.epochMs - b.epochMs);
+    let cur = null;
+    files.forEach(f => {
+      if (!cur || f.epochMs - cur.endMs > SESSION_GAP_MS) {
+        cur = { measId, files: [], startMs: f.epochMs, endMs: f.epochMs };
+        groups.push(cur);
+      }
+      cur.files.push(f);
+      cur.endMs = f.epochMs;
+    });
+  });
+  groups.sort((a, b) => b.startMs - a.startMs);
+  return groups;
+}
+function openRetroWizard() {
+  if (!state.scanFiles.length) { toast("먼저 설정 탭에서 폴더를 연결하고 스캔하세요"); return; }
+  const groups = buildRetroGroups();
+  if (!groups.length) { toast("등록할 새 파일이 없습니다 — 스캔된 h5가 이미 전부 Run에 연결되어 있습니다", 4000); return; }
+  const modal = $("#retroModal");
+  const totalFiles = groups.reduce((n, g) => n + g.files.length, 0);
+  modal.innerHTML = `
+    <h3>소급 등록 마법사</h3>
+    <div class="sub">아직 Run에 연결되지 않은 h5 ${totalFiles}개를 ${groups.length}개 그룹으로 묶었습니다(측정종류 + 날짜 + 4시간 이상 간격). 그룹마다 lot·시편·조합을 지정하고 "이 그룹 등록"에 체크한 뒤 아래 버튼을 누르면 셀·Run으로 한 번에 전개됩니다. 체크하지 않은 그룹은 그냥 넘어가며, 나중에 다시 열어 처리할 수 있습니다(별도의 "미상 보관함"에 저장해 두지는 않습니다 — 스캔 결과에 그대로 남아 있습니다).</div>
+    <div id="retroGroupList"></div>
+    <div class="rowbar"><span class="hint" id="retroProgress"></span><span class="spacer"></span>
+      <button class="btn sm ghost" id="retroCancel">닫기</button>
+      <button class="btn sm primary" id="retroGo">선택한 그룹 등록</button>
+    </div>`;
+  const list = $("#retroGroupList");
+  list.innerHTML = groups.map((g, i) => {
+    const measKnown = state.presets.meas.some(m => m.measId === g.measId);
+    return `
+    <div class="wizgroup" data-grp="${i}">
+      <div class="rowbar" style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:600">
+          <input type="checkbox" class="grpInclude" style="width:auto"> 이 그룹 등록
+        </label>
+        <span class="hint">${fmtDateTime(g.startMs)} ~ ${fmtDateTime(g.endMs)} · h5 ${g.files.length}개</span>
+      </div>
+      <div class="grid-form">
+        <div class="field"><label>측정종류${measKnown ? "" : " (파일명에서 인식 못함 — 직접 선택)"}</label>
+          <select class="grpMeas">
+            <option value="">— 선택 —</option>
+            ${state.presets.meas.map(m => `<option value="${esc(m.measId)}"${m.measId === g.measId ? " selected" : ""}>${esc(m.label)}</option>`).join("")}
+          </select></div>
+        <div class="field"><label>Lot</label>
+          <select class="grpLot"><option value="">— 선택 —</option>${state.lots.map(l => `<option value="${esc(l.id)}">${esc(lotLabel(l))}</option>`).join("")}</select></div>
+        <div class="field"><label>시편 (선택)</label><input type="text" class="grpSpecimen" placeholder="예: A-1"></div>
+        <div class="field"><label>여기 구성</label>
+          <select class="grpEx"><option value="">— 선택 —</option>${state.presets.ex.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
+        <div class="field"><label>검출 채널</label>
+          <select class="grpEm"><option value="">— 선택 —</option>${state.presets.em.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
+      </div>
+      <div class="hint" style="margin-top:6px">${g.files.slice(0, 3).map(f => esc(f.name)).join(", ")}${g.files.length > 3 ? ` 외 ${g.files.length - 3}개` : ""}</div>
+    </div>`;
+  }).join("");
+  openOverlay("retroOverlay");
+  $("#retroCancel").onclick = () => closeOverlay("retroOverlay");
+  $("#retroGo").onclick = () => submitRetroWizard(groups);
+}
+async function submitRetroWizard(groups) {
+  const rows = $$(".wizgroup", $("#retroGroupList"));
+  const jobs = [];
+  let firstErr = "", errCount = 0;
+  rows.forEach(row => {
+    if (!$(".grpInclude", row).checked) return;
+    const i = +row.dataset.grp;
+    const g = groups[i];
+    const measId = $(".grpMeas", row).value;
+    const lotId = $(".grpLot", row).value;
+    const specimen = $(".grpSpecimen", row).value.trim();
+    const exId = $(".grpEx", row).value;
+    const emId = $(".grpEm", row).value;
+    if (!measId || !lotId || !exId || !emId) {
+      errCount++;
+      if (!firstErr) firstErr = `"${g.measId || "(미상)"} · ${fmtDate(g.startMs)}" 그룹 — 측정종류/Lot/여기구성/검출채널을 모두 선택하세요`;
+      return;
+    }
+    jobs.push({ g, measId, lotId, specimen, exId, emId });
+  });
+  if (errCount) { toast(firstErr + (errCount > 1 ? ` 외 ${errCount - 1}건` : ""), 5500); return; }
+  if (!jobs.length) { toast("등록할 그룹을 하나 이상 선택하세요"); return; }
+
+  const totalFiles = jobs.reduce((n, j) => n + j.g.files.length, 0);
+  const progressEl = $("#retroProgress");
+  const entries = [];
+  let done = 0;
+  for (const j of jobs) {
+    const cid = cellId(j.lotId, j.measId, j.exId, j.emId);
+    for (const f of j.g.files) {
+      done++;
+      if (progressEl) progressEl.textContent = `해시 계산 중… ${done}/${totalFiles}`;
+      let hashPrefix = "";
+      try { const file = await f.handle.getFile(); hashPrefix = await hashPrefixOf(file); }
+      catch (e) { /* 해시 실패해도 등록은 계속 진행 — T1 지문만 비게 됨 */ }
+      entries.push({
+        cellId: cid, lotId: j.lotId, measTypeId: j.measId, exPresetId: j.exId, emPresetId: j.emId,
+        specimen: j.specimen,
+        file: { name: f.name, bytes: f.bytes, mtime: f.mtimeMs, hashPrefix, relPath: f.relPath },
+        acquiredAt: f.epochMs,
+      });
+    }
+  }
+  try {
+    if (progressEl) progressEl.textContent = "저장 중…";
+    const { cellsCreated, runsCreated } = await Sync.retroRegisterRuns(entries);
+    closeOverlay("retroOverlay");
+    toast(`소급 등록 완료 — 셀 ${cellsCreated}개 생성, Run ${runsCreated}개 등록(모두 "보정없음"·"마운트 미지정"으로 표시됩니다)`, 6000);
+  } catch (e) { toast("등록 실패: " + (e.message || e), 5000); }
+}
+
+/* ---------------- PHASE 6: 아카이브 내보내기 (설계 확정본 §7 저장 정책 방어 4겹) ----------------
+ * 각 셀의 대표(repRunId) Run 원본을 lot/측정종류/여기구성_검출채널/ 구조로 로컬 폴더에 복사한다.
+ * File System Access API로 폴더 핸들을 가진(=이번 세션에 스캔한 폴더에서 찾은) 파일만 다시 열
+ * 수 있으므로, 수동으로 개별 <input type=file>로 연결한 파일은 건너뛴다(Phase 4의 재첨부 제약과
+ * 같은 이유). Firestore 첨부(T3)를 다시 압축 해제하는 것보다 원본 폴더에서 바로 복사하는 쪽이
+ * 훨씬 간단하고 무손실이라 이 방식을 택했다(Phase 5 시작 시 참고 사항으로 이미 예고돼 있었음). */
+async function exportArchive() {
+  if (typeof window.showDirectoryPicker !== "function") { toast("이 브라우저는 폴더 내보내기를 지원하지 않습니다 (Chrome·Edge 최신 버전 필요)", 4500); return; }
+  const targets = Object.values(state.cells).filter(c => c.repRunId && state.runs[c.repRunId]);
+  if (!targets.length) { toast("대표(채택) Run이 있는 셀이 아직 없습니다"); return; }
+  let destHandle;
+  try { destHandle = await window.showDirectoryPicker({ mode: "readwrite" }); }
+  catch (e) { if (e && e.name !== "AbortError") toast("폴더 선택 실패: " + (e.message || e), 4000); return; }
+  let copied = 0, skipped = 0;
+  toast(`내보내는 중… 0/${targets.length}`);
+  for (let i = 0; i < targets.length; i++) {
+    const c = targets[i];
+    const run = state.runs[c.repRunId];
+    const relPath = run.file && run.file.relPath;
+    const found = relPath ? state.scanFiles.find(f => f.relPath === relPath) : null;
+    if (!found) { skipped++; continue; }
+    try {
+      const lot = state.lots.find(l => l.id === c.lotId);
+      const segs = [lotLabel(lot || {}), measLabel(c.measTypeId), exLabel(c.exPresetId) + "_" + emLabel(c.emPresetId)].map(safeSeg);
+      let dir = destHandle;
+      for (const seg of segs) dir = await dir.getDirectoryHandle(seg, { create: true });
+      const file = await found.handle.getFile();
+      const outHandle = await dir.getFileHandle(found.name, { create: true });
+      const writable = await outHandle.createWritable();
+      await writable.write(file);
+      await writable.close();
+      copied++;
+    } catch (e) { skipped++; }
+    toast(`내보내는 중… ${i + 1}/${targets.length}`);
+  }
+  toast(`아카이브 내보내기 완료 — ${copied}개 복사${skipped ? `, ${skipped}개는 원본 핸들이 없어 건너뜀(수동 연결된 파일이거나 폴더를 다시 스캔해야 함)` : ""}`, 6500);
+}
+
 /* ---------------- 탭 전환 ---------------- */
 function switchTab(name) {
   state.tab = name;
@@ -2095,6 +2678,9 @@ function bindUi() {
   $("#btnConnectFolder").onclick = connectFolder;
   $("#btnScanFolder").onclick = scanFolder;
   $("#btnDisconnectFolder").onclick = disconnectFolder;
+  /* PHASE 6 */
+  $("#btnRetroWizard").onclick = openRetroWizard;
+  $("#btnExportArchive").onclick = exportArchive;
   $$(".overlay").forEach(ov => ov.addEventListener("click", e => { if (e.target === ov) ov.classList.remove("on"); }));
   $("#footBuild").textContent = "빌드 " + new Date().toISOString().slice(0, 10);
 }
