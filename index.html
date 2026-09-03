@@ -371,6 +371,10 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
     <div class="card">
       <h3>계정</h3>
       <div class="hint" style="margin:8px 0" id="settAccount">—</div>
+      <div class="hint" style="margin:8px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span>전체 UID (INNO Prism "Ledger 연동" 설정에 붙여넣기용): <span class="mono" id="settUidFull">—</span></span>
+        <button class="btn sm" id="btnCopyUid">복사</button>
+      </div>
       <button class="btn danger sm" id="btnLogout2">로그아웃</button>
     </div>
     <div class="card">
@@ -1405,6 +1409,11 @@ const Sync = (() => {
     $("#app").classList.add("on");
     $("#chipUser").textContent = state.fb.user.email || state.fb.user.displayName || "로그인됨";
     $("#settAccount").textContent = (state.fb.user.email || "") + " · UID " + state.fb.user.uid.slice(0, 8) + "…";
+    $("#settUidFull").textContent = state.fb.user.uid;
+    $("#btnCopyUid").onclick = () => {
+      try { navigator.clipboard.writeText(state.fb.user.uid); toast("전체 UID를 복사했습니다"); }
+      catch (e) { toast(state.fb.user.uid); }
+    };
     setChip("busy", "동기화 중…");
     try {
       await ensureSeededCore();
