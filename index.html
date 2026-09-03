@@ -191,6 +191,17 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 .tpl-row .rm:hover{color:var(--risk)}
 .tpl-editor{display:none;margin-top:12px}
 .tpl-editor.on{display:block}
+
+/* ---------- Phase 3: 마운트 칩 / 보정 게이트 ---------- */
+.gatewarn{color:var(--warn);font-weight:600}
+.gateok{color:var(--ok);font-weight:600}
+.rtcard{border:1px solid var(--line);border-radius:var(--r-s);padding:14px;margin-top:14px;background:var(--chip)}
+.rtcard h3{font-size:13px}
+.runrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--sub);padding:5px 0 0}
+.runrow .spacer{flex:1}
+.runfileline{font-size:12px;color:var(--muted);padding:2px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.runfileline:last-child{border-bottom:none}
+.runfileline .btn{padding:1px 8px;font-size:11px}
 </style>
 </head>
 <body>
@@ -214,12 +225,13 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   <div class="topbar">
     <div class="brand">
       <span class="logo">INNO <b>Ledger</b></span>
-      <span class="tag">측정 계획 · 이력 · 보정 게이트 — Phase 2</span>
+      <span class="tag">측정 계획 · 이력 · 보정 게이트 — Phase 4</span>
     </div>
-    <div class="gauge" title="Firestore 프로젝트 inno-nanoil 공유 용량 (NanoLab과 합산)">
-      <span class="gaugetxt" id="gaugeTxt">저장공간 — Phase 4에서 활성화</span>
+    <div class="gauge" title="첨부된 대표 파일 합계 — Firestore 프로젝트 inno-nanoil 공유 용량(NanoLab과 합산)의 일부">
+      <span class="gaugetxt" id="gaugeTxt">저장공간 —</span>
       <div class="gaugebar"><i id="gaugeBar"></i></div>
     </div>
+    <button class="chip dot" id="chipMount" title="마운트 세션 — 스테이지 재장착 경계를 표시합니다">마운트 없음</button>
     <span class="chip dot" id="chipSync">연결 대기</span>
     <span class="chip" id="chipUser">—</span>
     <button class="iconbtn" id="btnTheme" title="라이트/다크 전환">◐</button>
@@ -230,7 +242,7 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
     <button class="tab-btn on" data-tab="matrix">매트릭스</button>
     <button class="tab-btn" data-tab="templates">계획 템플릿</button>
     <button class="tab-btn" data-tab="presets">프리셋</button>
-    <button class="tab-btn soon" data-tab="calib">보정</button>
+    <button class="tab-btn" data-tab="calib">보정</button>
     <button class="tab-btn soon" data-tab="dashboard">대시보드</button>
     <span class="spacer"></span>
     <button class="tab-btn" data-tab="settings">설정</button>
@@ -298,7 +310,34 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
     </div>
   </div>
 
-  <div class="panel" id="panel-calib"><div class="soonpanel"><div class="ph">🔬</div><b>보정 세션 · 렌즈 목록 연동</b>Phase 3에서 제공됩니다 (INNO Prism의 렌즈 목록을 그대로 공유).</div></div>
+  <!-- ---- 보정 ---- -->
+  <div class="panel" id="panel-calib">
+    <div class="card">
+      <div class="rowbar">
+        <h3>Prism 렌즈 목록 연동</h3>
+        <span class="spacer"></span>
+      </div>
+      <div class="hint" style="margin-bottom:10px">INNO Prism의 "공용 렌즈 목록" Realtime Database URL과 동일한 값을 입력하면, 아래 보정 세션에서 렌즈를 목록으로 골라 쓸 수 있습니다. (Prism 설정 → 보정 → 렌즈 공유에서 확인)</div>
+      <div class="rowbar">
+        <input type="text" id="lensDbUrlInput" placeholder="https://xxxx-default-rtdb.firebaseio.com" style="flex:1;min-width:260px">
+        <button class="btn sm" id="btnSaveLensUrl">저장</button>
+        <button class="btn sm" id="btnRefreshLens">새로고침</button>
+        <span class="chip dot" id="lensStatusChip">미설정</span>
+      </div>
+      <div class="hint" id="lensErrBox" style="color:var(--risk);display:none;margin-top:8px"></div>
+      <div class="hint" id="lensCountHint" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <div class="rowbar">
+        <h3>보정 세션</h3>
+        <span class="hint">측정 시작 전 확보해 둔 빔·파워 보정 값을 기록해 두면, Run 티켓 발급 시 이 목록에서 골라 연결합니다.</span>
+        <span class="spacer"></span>
+        <button class="btn sm primary" id="btnNewCalib">+ 새 보정 세션</button>
+      </div>
+      <div id="calibEditor" class="tpl-editor"></div>
+      <div id="calibListWrap"></div>
+    </div>
+  </div>
   <div class="panel" id="panel-dashboard"><div class="soonpanel"><div class="ph">📊</div><b>커버리지 대시보드</b>Phase 6에서 제공됩니다 — 누락 · 판정대기 · 보정없음 집계.</div></div>
 
   <!-- ---- 설정 ---- -->
@@ -311,11 +350,24 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
     <div class="card">
       <h3>동기화</h3>
       <div class="hint" style="margin:8px 0" id="settSync">—</div>
-      <div class="hint">저장 프로젝트: <span class="mono">inno-nanoil</span> (NanoLab과 공유). 컬렉션: <span class="mono">opt_presets · opt_cells · opt_templates · opt_runs · opt_calib · opt_mounts</span></div>
+      <div class="hint">저장 프로젝트: <span class="mono">inno-nanoil</span> (NanoLab과 공유). 컬렉션: <span class="mono">opt_presets · opt_cells · opt_templates · opt_runs · opt_calib · opt_mounts · opt_blob</span></div>
+    </div>
+    <div class="card">
+      <h3>측정 데이터 폴더</h3>
+      <div class="hint" style="margin:8px 0">폴더를 연결하면 Run 티켓에 원본 h5 파일을 빠르게 연결할 수 있습니다 — 파일명 규칙 <span class="mono">YYMMDD_HHMMSS_측정종류.h5</span>(INNO Optics 저장 규약)를 기준으로 후보를 찾습니다. File System Access API를 지원하는 Chrome·Edge에서만 동작합니다.</div>
+      <div class="rowbar">
+        <span class="chip dot" id="folderStatusChip">연결 안 됨</span>
+        <span class="hint" id="folderScanHint"></span>
+        <span class="spacer"></span>
+        <button class="btn sm" id="btnConnectFolder">폴더 연결</button>
+        <button class="btn sm" id="btnScanFolder" disabled>스캔</button>
+        <button class="btn sm danger" id="btnDisconnectFolder" disabled>연결 해제</button>
+      </div>
     </div>
     <div class="card">
       <h3>저장공간</h3>
-      <div class="hint" style="margin:8px 0">파일 첨부(대표 성공 데이터)는 Phase 4에서 활성화됩니다. 이 프로젝트의 무료 한도 1&nbsp;GiB는 NanoLab과 공유되므로, 활성화 후 이 화면에 실시간 사용량 계기판이 표시됩니다.</div>
+      <div class="hint" style="margin:8px 0" id="capacityHint">—</div>
+      <div class="gaugebar" style="width:100%;height:8px;margin-top:6px"><i id="settGaugeBar"></i></div>
     </div>
     <div class="card">
       <h3>화면</h3>
@@ -324,7 +376,7 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
   </div>
 
   <div class="foot">
-    <span>INNO Ledger · Phase 2 · v0.2.0</span>
+    <span>INNO Ledger · Phase 4 · v0.4.0</span>
     <span id="footBuild"></span>
   </div>
 </div>
@@ -332,6 +384,16 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 <!-- ---- 셀 편집 팝오버 ---- -->
 <div class="overlay" id="cellOverlay">
   <div class="modalcard" id="cellModal"></div>
+</div>
+
+<!-- ---- 마운트 세션 모달 ---- -->
+<div class="overlay" id="mountOverlay">
+  <div class="modalcard" id="mountModal"></div>
+</div>
+
+<!-- ---- 파일 연결 모달 ---- -->
+<div class="overlay" id="fileOverlay">
+  <div class="modalcard" id="fileModal"></div>
 </div>
 
 <!-- ---- 조합 추가 모달 ---- -->
@@ -349,9 +411,12 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 <script>
 "use strict";
 /* =====================================================================
- * INNO Ledger — Phase 2
- * 이어서: 매트릭스 뷰(측정종류 축 전환 + 압축 표시) + 셀 상태기계 + 계획 템플릿
- * Phase 1 스캐폴드(로그인/lot 읽기/프리셋)에 이어 붙였습니다.
+ * INNO Ledger — Phase 4
+ * 이어서: h5 폴더 스캔(File System Access API) + 파일명·시각 기반 후보 매칭
+ *        + Run에 원본 파일 링크(T1 지문) + 클라우드 첨부(T3, gzip+base64+청크)
+ *        + 용량 계기판
+ * Phase 1(로그인/lot 읽기/프리셋) + Phase 2(매트릭스/셀 상태기계/계획 템플릿)
+ * + Phase 3(Run 티켓/마운트/보정 게이트)에 이어 붙였습니다.
  * 앵커 주석(PHASE n:)을 다음 확장 지점으로 사용하세요.
  * ===================================================================== */
 
@@ -425,6 +490,17 @@ const state = {
   activeMeas: null,           // 현재 매트릭스에 표시 중인 측정종류 id
   draftCols: {},              // measId -> Set("exId|emId")  (아직 셀이 없는 임시 열)
   selectedLots: new Set(),
+  /* PHASE 3 */
+  mounts: [],          // opt_mounts docs (+id), startedAt desc
+  calibs: [],          // opt_calib docs (+id), at desc
+  runs: {},            // runId -> Run doc(+id)
+  settings: { lensDbUrl: "" },   // opt_meta/settings
+  lenses: [],          // Prism 공용 렌즈 목록 (RTDB에서 읽기 전용으로 fetch)
+  lensStatus: "off",   // off | busy | ok | err
+  lensErr: "",
+  /* PHASE 4 */
+  folder: { handle: null, scanning: false, lastScanAt: null, fileCount: 0 },  // 연결된 측정 데이터 폴더
+  scanFiles: [],        // 마지막 스캔 결과: [{name, relPath, bytes, mtimeMs, epochMs, measId, handle}]
 };
 
 const $  = (sel, root) => (root || document).querySelector(sel);
@@ -460,6 +536,12 @@ function excelRoundish(n, digits) {
   return String(r);
 }
 function safeSeg(s) { return String(s).replace(/[\/]/g, "_"); }
+function fmtBytes(n) {
+  if (n == null || !isFinite(n)) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(2) + " MB";
+}
 
 /* ---------------- theme ---------------- */
 function applyTheme(t) {
@@ -509,6 +591,263 @@ function presetById(kind, id) { return state.presets[kind].find(p => p.id === id
 function exLabel(id) { const p = presetById("ex", id); return p ? p.label : "(삭제됨)"; }
 function emLabel(id) { const p = presetById("em", id); return p ? p.label : "(삭제됨)"; }
 function measLabel(id) { const m = SEED_MEAS.find(m => m.id === id); return m ? m.label : id; }
+
+/* ---------------- PHASE 3: Prism 공용 렌즈 목록 (Firebase RTDB, 읽기 전용) ----------------
+ * INNO Prism 소스(app.js)의 lensKey()/LENS_MEDIA/lensPreflight() 규칙을 그대로 재현합니다.
+ * lensDbUrl은 Prism과 마찬가지로 "빌드 내장값"이 아니라 설치마다 다른 설정값이므로
+ * Ledger도 자체 설정(opt_meta/settings.lensDbUrl)에 사용자가 같은 URL을 붙여넣습니다. */
+function lensKey(o) {
+  return `${o.maker || ""}~${o.model || ""}~${o.mag}`
+    .toLowerCase().replace(/[.#$/[\]]/g, "_").replace(/\s+/g, "_").trim().slice(0, 200);
+}
+const LENS_MEDIA = { air: "Air", oil: "Oil", water: "Water", glycerol: "Glycerol" };
+function lensLabel(o) {
+  const ex = [];
+  if (isFinite(Number(o.na)) && Number(o.na) > 0) ex.push(`NA ${Number(o.na).toFixed(3)}`);
+  if (LENS_MEDIA[o.medium]) ex.push(LENS_MEDIA[o.medium]);
+  return `${o.maker || ""} ${o.model || ""} (${o.mag}×${ex.length ? ", " + ex.join(", ") : ""})`;
+}
+function lensDbBase() {
+  const u = (state.settings.lensDbUrl || "").trim();
+  return u ? u.replace(/\/+$/, "") : "";
+}
+async function fetchLenses() {
+  const base = lensDbBase();
+  if (!base) { state.lenses = []; state.lensStatus = "off"; state.lensErr = ""; renderCalibTab(); return; }
+  state.lensStatus = "busy"; renderCalibTab();
+  let r;
+  try {
+    r = await fetch(`${base}/lenses.json`, { method: "GET", cache: "no-store" });
+  } catch (e) {
+    state.lensStatus = "err";
+    state.lensErr = `서버에 연결할 수 없습니다 — URL 오타이거나 네트워크/방화벽 차단일 수 있습니다 (${e.message})`;
+    renderCalibTab(); return;
+  }
+  if (r.status === 401 || r.status === 403) {
+    state.lensStatus = "err";
+    state.lensErr = "권한 거부 (401) — Firebase 콘솔 → Realtime Database → 규칙에서 lenses 경로의 .read 를 true 로 게시했는지 확인하세요";
+    renderCalibTab(); return;
+  }
+  if (r.status === 404) {
+    state.lensStatus = "err";
+    state.lensErr = "주소를 찾을 수 없습니다 (404) — Realtime Database URL이 맞는지, 뒤에 /lenses 나 .json 을 붙이지 않았는지 확인하세요";
+    renderCalibTab(); return;
+  }
+  if (!r.ok) { state.lensStatus = "err"; state.lensErr = `서버 응답 ${r.status}`; renderCalibTab(); return; }
+  let data;
+  try { data = await r.json(); }
+  catch (e) { state.lensStatus = "err"; state.lensErr = "응답을 해석할 수 없습니다 (Realtime Database 주소가 맞는지 확인하세요)"; renderCalibTab(); return; }
+  const list = Object.keys(data || {})
+    .map(k => Object.assign({ _key: k }, data[k]))
+    .filter(o => isFinite(Number(o.mag)));
+  list.sort((a, b) => String(a.maker || "").localeCompare(String(b.maker || ""), "ko") || (Number(a.mag) - Number(b.mag)));
+  state.lenses = list; state.lensStatus = "ok"; state.lensErr = "";
+  renderCalibTab();
+}
+
+/* ---------------- PHASE 4: 폴더 핸들 영속화 (IndexedDB) ---------------- */
+const FolderStore = (() => {
+  const DB_NAME = "innoLedgerFs", STORE = "handles";
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function set(key, val) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(val, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function get(key) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function del(key) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  return { set, get, del };
+})();
+
+/* ---------------- PHASE 4: h5 폴더 스캔 (File System Access API) ----------------
+ * 파일명 규칙(설계 확정본 §0): YYMMDD_HHMMSS_<measurement>.h5 — INNO Optics 저장 규약.
+ * h5 내부 attr까지 읽지는 않는다(브라우저에 HDF5 파서가 없음) — Run 연결 후보는
+ * 파일명에서 뽑은 시각·측정종류 슬러그만으로 좁힌다. 슬러그가 측정종류 id와
+ * 정확히 일치하지 않으면(구형 파일명 등) 후보에 나타나지 않고, 수동 선택으로 대체한다. */
+const FNAME_RE = /^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(.+)\.h5$/i;
+function parseH5Name(name) {
+  const m = FNAME_RE.exec(name);
+  if (!m) return null;
+  const [, yy, mo, dd, hh, mi, ss, slug] = m;
+  const epochMs = new Date(2000 + (+yy), (+mo) - 1, +dd, +hh, +mi, +ss).getTime();
+  return { epochMs, slug };
+}
+function candidateFilesForRun(measTypeId, aroundEpochMs) {
+  return state.scanFiles
+    .filter(f => f.measId === measTypeId)
+    .map(f => Object.assign({ diff: Math.abs(f.epochMs - aroundEpochMs) }, f))
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, 8);
+}
+async function connectFolder() {
+  if (typeof window.showDirectoryPicker !== "function") { toast("이 브라우저는 폴더 연결을 지원하지 않습니다 (Chrome·Edge 최신 버전 필요)", 4000); return; }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: "read" });
+    state.folder.handle = handle;
+    try { await FolderStore.set("measFolder", handle); } catch (e) { /* 영속화 실패해도 이번 세션은 사용 가능 */ }
+    renderSettingsFolder();
+    toast("폴더를 연결했습니다 — \"스캔\"을 눌러 h5 파일을 찾으세요");
+  } catch (e) { if (e && e.name !== "AbortError") toast("연결 실패: " + (e.message || e), 4000); }
+}
+async function disconnectFolder() {
+  state.folder.handle = null; state.folder.fileCount = 0; state.folder.lastScanAt = null;
+  state.scanFiles = [];
+  try { await FolderStore.del("measFolder"); } catch (e) {}
+  renderSettingsFolder();
+  toast("폴더 연결을 해제했습니다");
+}
+async function restoreFolder() {
+  try {
+    const handle = await FolderStore.get("measFolder");
+    if (!handle) return;
+    state.folder.handle = handle;
+    renderSettingsFolder();
+  } catch (e) { /* IndexedDB 미지원 또는 핸들 복원 실패 — 재연결 요구 */ }
+}
+async function scanFolder() {
+  if (!state.folder.handle) { toast("먼저 폴더를 연결하세요"); return; }
+  try {
+    let perm = await state.folder.handle.queryPermission({ mode: "read" });
+    if (perm !== "granted") perm = await state.folder.handle.requestPermission({ mode: "read" });
+    if (perm !== "granted") { toast("폴더 접근 권한이 거부되었습니다 — 다시 연결해 주세요", 4000); return; }
+  } catch (e) { toast("권한 확인 실패: " + (e.message || e), 4000); return; }
+
+  state.folder.scanning = true; renderSettingsFolder();
+  const found = [];
+  const MAX_FILES = 8000;
+  async function walk(dirHandle, relPrefix) {
+    for await (const [name, entry] of dirHandle.entries()) {
+      if (found.length >= MAX_FILES) return;
+      if (entry.kind === "directory") { await walk(entry, relPrefix + name + "/"); }
+      else if (entry.kind === "file" && /\.h5$/i.test(name)) {
+        const parsed = parseH5Name(name);
+        let file;
+        try { file = await entry.getFile(); } catch (e) { continue; }
+        found.push({
+          name, relPath: relPrefix + name, bytes: file.size, mtimeMs: file.lastModified,
+          epochMs: parsed ? parsed.epochMs : file.lastModified,
+          measId: parsed ? parsed.slug : "",
+          handle: entry,
+        });
+      }
+    }
+  }
+  try {
+    await walk(state.folder.handle, "");
+    state.scanFiles = found;
+    state.folder.lastScanAt = Date.now();
+    state.folder.fileCount = found.length;
+    toast(`${found.length}개 h5 파일을 찾았습니다`);
+  } catch (e) {
+    toast("스캔 실패: " + (e.message || e), 4000);
+  } finally {
+    state.folder.scanning = false; renderSettingsFolder();
+  }
+}
+function renderSettingsFolder() {
+  const chip = $("#folderStatusChip");
+  if (!chip) return;
+  const supported = typeof window.showDirectoryPicker === "function";
+  if (!supported) {
+    chip.className = "chip dot err"; chip.textContent = "미지원 브라우저";
+    $("#folderScanHint").textContent = "Chrome 또는 Edge 최신 버전에서 사용할 수 있습니다.";
+    $("#btnConnectFolder").disabled = true;
+    return;
+  }
+  if (state.folder.scanning) { chip.className = "chip dot busy"; chip.textContent = "스캔 중…"; }
+  else if (state.folder.handle) { chip.className = "chip dot on"; chip.textContent = "연결됨: " + (state.folder.handle.name || "폴더"); }
+  else { chip.className = "chip dot"; chip.textContent = "연결 안 됨"; }
+  $("#folderScanHint").textContent = state.folder.handle
+    ? (state.folder.lastScanAt ? `마지막 스캔: ${fmtDateTime(state.folder.lastScanAt)} · h5 ${state.folder.fileCount}개` : "아직 스캔하지 않음")
+    : "";
+  $("#btnScanFolder").disabled = !state.folder.handle || state.folder.scanning;
+  $("#btnDisconnectFolder").disabled = !state.folder.handle;
+}
+
+/* ---------------- PHASE 4: 지문(T1) 해시 + 압축·청크(T3) ---------------- */
+async function hashPrefixOf(file) {
+  const HEAD = 65536, TAIL = 65536;
+  const parts = [];
+  if (file.size <= HEAD + TAIL) parts.push(await file.arrayBuffer());
+  else {
+    parts.push(await file.slice(0, HEAD).arrayBuffer());
+    parts.push(await file.slice(file.size - TAIL).arrayBuffer());
+  }
+  const sizeTag = new TextEncoder().encode(String(file.size));
+  const buf = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0) + sizeTag.byteLength);
+  let off = 0;
+  for (const p of parts) { buf.set(new Uint8Array(p), off); off += p.byteLength; }
+  buf.set(sizeTag, off);
+  const digest = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+const CALIB_CHUNK_CHARS = 700000; // §7: gzip+base64 후 700KB 단위 청크(Firestore 1MiB 문서 한도 대비 여유)
+const ATTACH_SIZE_GATE = 1.4 * 1024 * 1024; // §7 저장 정책 2번: 압축 후 1.4MB 초과 시 첨부 건너뜀
+async function gzipBase64Chunks(file, chunkChars) {
+  if (typeof CompressionStream === "undefined") throw new Error("이 브라우저는 압축(CompressionStream)을 지원하지 않습니다");
+  const cs = new CompressionStream("gzip");
+  const stream = file.stream().pipeThrough(cs);
+  const buf = await new Response(stream).arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const BIN_CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += BIN_CHUNK) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + BIN_CHUNK));
+  const b64 = btoa(binary);
+  const chunks = [];
+  for (let i = 0; i < b64.length; i += chunkChars) chunks.push(b64.slice(i, i + chunkChars));
+  return { chunks, compressedBytes: bytes.length };
+}
+
+/* ---------------- PHASE 4: 용량 계기판 ----------------
+ * §7: Firestore 무료 1GiB는 프로젝트(inno-nanoil) 전체를 NanoLab과 공유하므로,
+ * 여기서는 그보다 훨씬 낮은 자체 관리 기준(600MB, §7 자동 강등 임계값과 동일)을 잡아 보여준다.
+ * 실제 Firestore 하드 리밋이 아니라 "이쯤에서 정리를 고려하라"는 소프트 가이드다. */
+const CAPACITY_BUDGET = 600 * 1024 * 1024;
+function totalAttachedBytes() {
+  return Object.values(state.runs).reduce((sum, r) => sum + ((r.file && r.file.attached && r.file.blobBytes) || 0), 0);
+}
+function renderCapacityGauge() {
+  const bytes = totalAttachedBytes();
+  const pct = Math.min(100, (bytes / CAPACITY_BUDGET) * 100);
+  const gaugeTxt = $("#gaugeTxt");
+  if (gaugeTxt) gaugeTxt.textContent = `저장공간 ${fmtBytes(bytes)} / ${fmtBytes(CAPACITY_BUDGET)} (${pct.toFixed(1)}%)`;
+  const gaugeBar = $("#gaugeBar");
+  if (gaugeBar) gaugeBar.style.width = pct + "%";
+  const settGaugeBar = $("#settGaugeBar");
+  if (settGaugeBar) settGaugeBar.style.width = pct + "%";
+  const capacityHint = $("#capacityHint");
+  if (capacityHint) capacityHint.innerHTML =
+    `현재 첨부된 대표 파일 합계: <b>${fmtBytes(bytes)}</b> / 권장 관리 기준 ${fmtBytes(CAPACITY_BUDGET)} (${pct.toFixed(1)}%). ` +
+    `Firestore 프로젝트 <span class="mono">inno-nanoil</span> 무료 한도 1&nbsp;GiB는 NanoLab과 공유되므로, 이 기준은 자체적으로 넉넉히 잡은 값입니다.` +
+    (pct >= 80 ? `<br><b style="color:var(--warn)">⚠️ 80% 이상 — 오래된 첨부를 "첨부 해제"하거나(로컬 링크는 유지됨) 정리를 고려하세요.</b>` : "");
+}
 
 /* ---------------- Sync: Firebase 연결 + Firestore I/O ---------------- */
 const Sync = (() => {
@@ -667,6 +1006,40 @@ const Sync = (() => {
     }, err => { console.error(err); toast("템플릿 읽기 오류: " + friendly(err), 4000); }));
   }
 
+  /* PHASE 3 */
+  function subscribeMounts() {
+    unsubs.push(col("opt_mounts").onSnapshot(snap => {
+      state.mounts = snap.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+      renderMountChip();
+    }, err => { console.error(err); toast("마운트 읽기 오류: " + friendly(err), 4000); }));
+  }
+  function subscribeCalibs() {
+    unsubs.push(col("opt_calib").onSnapshot(snap => {
+      state.calibs = snap.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => (b.at || 0) - (a.at || 0));
+      renderCalibTab();
+    }, err => { console.error(err); toast("보정 세션 읽기 오류: " + friendly(err), 4000); }));
+  }
+  function subscribeRuns() {
+    unsubs.push(col("opt_runs").onSnapshot(snap => {
+      const runs = {};
+      snap.docs.forEach(d => { runs[d.id] = Object.assign({ id: d.id }, d.data()); });
+      state.runs = runs;
+      renderCapacityGauge();
+    }, err => { console.error(err); toast("Run 읽기 오류: " + friendly(err), 4000); }));
+  }
+  function subscribeSettings() {
+    unsubs.push(col("opt_meta").doc("settings").onSnapshot(snap => {
+      const d = snap.data() || {};
+      const newUrl = d.lensDbUrl || "";
+      const changed = newUrl !== state.settings.lensDbUrl;
+      state.settings.lensDbUrl = newUrl;
+      renderCalibTab();
+      if (changed) fetchLenses();
+    }, err => { console.error(err); toast("설정 읽기 오류: " + friendly(err), 4000); }));
+  }
+
   async function savePreset(kind, id, data) {
     const ref = id ? col("opt_presets").doc(id) : col("opt_presets").doc();
     await ref.set(Object.assign({ kind }, data), { merge: true });
@@ -713,6 +1086,79 @@ const Sync = (() => {
     return { created, skipped };
   }
 
+  /* ---- PHASE 3: Mount ---- */
+  async function startMount(specimen, lotId, note) {
+    const ref = col("opt_mounts").doc();
+    await ref.set({
+      specimen, lotId: lotId || "", note: note || "",
+      startedAt: Date.now(), endedAt: null, by: state.fb.user.email || "",
+    });
+    return ref.id;
+  }
+  async function endMount(mountId) {
+    await col("opt_mounts").doc(mountId).set({ endedAt: Date.now() }, { merge: true });
+  }
+
+  /* ---- PHASE 3: Calib ---- */
+  async function saveCalib(id, data) {
+    const ref = id ? col("opt_calib").doc(id) : col("opt_calib").doc();
+    await ref.set(Object.assign({ updatedAt: Date.now() }, data, id ? {} : { createdAt: Date.now() }), { merge: true });
+    return ref.id;
+  }
+  async function deleteCalib(id) {
+    await col("opt_calib").doc(id).delete();
+  }
+
+  /* ---- PHASE 3: Run 티켓 (게이트를 통과했든 override했든, 발급 시 셀 상태를 "ticket"으로 전이) ---- */
+  async function issueRun(cellId, data) {
+    const runRef = col("opt_runs").doc();
+    const batch = state.fb.db.batch();
+    batch.set(runRef, Object.assign({ cellId, issuedAt: Date.now(), issuedBy: state.fb.user.email || "" }, data));
+    batch.set(col("opt_cells").doc(cellId), { status: "ticket" }, { merge: true });
+    await batch.commit();
+    return runRef.id;
+  }
+  /** revertStatus가 있으면 셀 상태도 함께 되돌린다(같은 셀에 남은 다른 Run이 없을 때만 호출측에서 넘김) */
+  async function cancelRun(runId, cellId, revertStatus) {
+    const batch = state.fb.db.batch();
+    batch.delete(col("opt_runs").doc(runId));
+    if (revertStatus) batch.set(col("opt_cells").doc(cellId), { status: revertStatus }, { merge: true });
+    await batch.commit();
+  }
+
+  /* ---- PHASE 3: 설정(Prism 렌즈 목록 URL 등) ---- */
+  async function saveSettings(data) {
+    await col("opt_meta").doc("settings").set(data, { merge: true });
+  }
+
+  /* ---- PHASE 4: Run 파일 링크(T1 지문) + 클라우드 첨부(T3) ----
+   * file 필드는 dot-path로 부분 갱신한다 — {file:{...}} 형태로 merge:true를 쓰면
+   * Firestore가 file 맵 전체를 통째로 교체해 버려 다른 하위 필드가 날아간다. */
+  async function linkRunFile(runId, fileMeta) {
+    await col("opt_runs").doc(runId).set({
+      file: Object.assign({ attached: false, blobChunks: 0, blobBytes: 0 }, fileMeta),
+    }, { merge: true });
+  }
+  async function unlinkRunFile(runId) {
+    await col("opt_runs").doc(runId).set({ file: null }, { merge: true });
+  }
+  async function attachRunBlob(runId, chunks, compressedBytes) {
+    const batch = state.fb.db.batch();
+    chunks.forEach((c, i) => batch.set(col("opt_blob").doc(runId + "_" + i), { idx: i, total: chunks.length, data: c }));
+    batch.set(col("opt_runs").doc(runId), {
+      "file.attached": true, "file.blobChunks": chunks.length, "file.blobBytes": compressedBytes,
+    }, { merge: true });
+    await batch.commit();
+  }
+  async function detachRunBlob(runId, chunkCount) {
+    const batch = state.fb.db.batch();
+    for (let i = 0; i < chunkCount; i++) batch.delete(col("opt_blob").doc(runId + "_" + i));
+    batch.set(col("opt_runs").doc(runId), {
+      "file.attached": false, "file.blobChunks": 0, "file.blobBytes": 0,
+    }, { merge: true });
+    await batch.commit();
+  }
+
   async function onLoggedIn() {
     $("#loginGate").classList.add("hidden");
     $("#app").classList.add("on");
@@ -726,6 +1172,10 @@ const Sync = (() => {
       subscribePresets();
       subscribeCells();
       subscribeTemplates();
+      subscribeMounts();
+      subscribeCalibs();
+      subscribeRuns();
+      subscribeSettings();
       setChip("on", "동기화 중 · " + (state.fb.user.email || ""));
       $("#settSync").textContent = "실시간 동기화 켜짐 (" + (state.fb.user.email || "") + ")";
     } catch (e) {
@@ -735,7 +1185,11 @@ const Sync = (() => {
     }
   }
 
-  return { login, logout, tryRestore, col, savePreset, deletePreset, saveCell, deleteCell, saveTemplate, deleteTemplate, applyTemplateToLots };
+  return {
+    login, logout, tryRestore, col, savePreset, deletePreset, saveCell, deleteCell, saveTemplate, deleteTemplate, applyTemplateToLots,
+    startMount, endMount, saveCalib, deleteCalib, issueRun, cancelRun, saveSettings,
+    linkRunFile, unlinkRunFile, attachRunBlob, detachRunBlob,
+  };
 })();
 
 /* ---------------- 셀 헬퍼 ---------------- */
@@ -846,6 +1300,215 @@ function renderMatrix() {
   $$(".cellslot").forEach(td => td.onclick = () => openCellModal(td.dataset.lot, measId, td.dataset.ex, td.dataset.em));
 }
 
+/* ---------------- PHASE 3: 마운트 세션 ---------------- */
+function activeMount() { return state.mounts.find(m => !m.endedAt) || null; }
+function renderMountChip() {
+  const chip = $("#chipMount");
+  if (!chip) return;
+  const active = activeMount();
+  if (active) {
+    chip.className = "chip dot on";
+    chip.textContent = "마운트 중 · " + (active.specimen || "(이름없음)");
+  } else {
+    chip.className = "chip dot";
+    chip.textContent = "마운트 없음";
+  }
+}
+function openMountModal() {
+  const active = activeMount();
+  const modal = $("#mountModal");
+  const recentSpecimens = Array.from(new Set(state.mounts.map(m => m.specimen).filter(Boolean))).slice(0, 12);
+  modal.innerHTML = `
+    <h3>마운트 세션</h3>
+    <div class="sub">스테이지에 시편을 새로 장착할 때마다 시작하세요 — 같은 마운트 동안 측정한 위치들을 나중에 서로 매칭(단일입자/앙상블, 2D scan 등)할 수 있습니다.</div>
+    ${active ? `
+      <div class="card" style="box-shadow:none;padding:12px">
+        <div><b>${esc(active.specimen || "(이름없음)")}</b>${active.lotId ? " · " + esc(lotLabel(state.lots.find(l => l.id === active.lotId) || {})) : ""}</div>
+        <div class="hint" style="margin-top:4px">시작: ${fmtDateTime(active.startedAt)}${active.note ? " · " + esc(active.note) : ""}</div>
+      </div>
+      <div class="rowbar"><span class="spacer"></span>
+        <button class="btn sm ghost" id="mmCancel">닫기</button>
+        <button class="btn sm danger" id="mmEnd">마운트 종료</button>
+      </div>` : `
+      <div class="grid-form">
+        <div class="field"><label>시편(specimen)</label><input type="text" id="mmSpecimen" list="mmSpecimenList" placeholder="예: A-1, left-edge…"></div>
+        <div class="field"><label>관련 lot (선택)</label>
+          <select id="mmLot"><option value="">— 선택 안 함 —</option>${state.lots.map(l => `<option value="${esc(l.id)}">${esc(lotLabel(l))}</option>`).join("")}</select></div>
+      </div>
+      <datalist id="mmSpecimenList">${recentSpecimens.map(s => `<option value="${esc(s)}">`).join("")}</datalist>
+      <div class="field" style="margin-top:8px"><label>메모</label><input type="text" id="mmNote"></div>
+      <div class="rowbar"><span class="spacer"></span>
+        <button class="btn sm ghost" id="mmCancel">취소</button>
+        <button class="btn sm primary" id="mmStart">마운트 시작</button>
+      </div>`}
+    ${state.mounts.length ? `<div class="tpl-rows" style="margin-top:14px">
+        <div class="hint" style="margin-bottom:6px">최근 마운트</div>
+        ${state.mounts.slice(0, 8).map(m => `<div class="hint">· ${esc(m.specimen || "(이름없음)")} — ${fmtDateTime(m.startedAt)} ~ ${m.endedAt ? fmtDateTime(m.endedAt) : "진행중"}</div>`).join("")}
+      </div>` : ""}
+  `;
+  openOverlay("mountOverlay");
+  $("#mmCancel").onclick = () => closeOverlay("mountOverlay");
+  if (active) {
+    $("#mmEnd").onclick = async () => {
+      try { await Sync.endMount(active.id); closeOverlay("mountOverlay"); toast("마운트를 종료했습니다"); }
+      catch (e) { toast("실패: " + (e.message || e), 4000); }
+    };
+  } else {
+    $("#mmStart").onclick = async () => {
+      const specimen = $("#mmSpecimen").value.trim();
+      if (!specimen) { toast("시편 이름을 입력하세요"); return; }
+      try {
+        await Sync.startMount(specimen, $("#mmLot").value, $("#mmNote").value.trim());
+        closeOverlay("mountOverlay"); toast("마운트를 시작했습니다");
+      } catch (e) { toast("실패: " + (e.message || e), 4000); }
+    };
+  }
+}
+
+/* ---------------- PHASE 3: 보정 세션 / Prism 렌즈 연동 ---------------- */
+function matchingCalibs(exId) {
+  const preset = presetById("ex", exId);
+  const lambdas = new Set((preset && preset.sources || []).map(s => s.lambdaNm));
+  return state.calibs.filter(c => lambdas.has(c.lambdaNm));
+}
+function validMatchingCalibs(exId) {
+  const now = Date.now();
+  return matchingCalibs(exId).filter(c => !c.validUntil || c.validUntil >= now);
+}
+function lensStatusChipMeta() {
+  if (state.lensStatus === "ok") return { cls: " on", text: `연결됨 · 렌즈 ${state.lenses.length}개` };
+  if (state.lensStatus === "busy") return { cls: " busy", text: "확인 중…" };
+  if (state.lensStatus === "err") return { cls: " err", text: "오류" };
+  return { cls: "", text: "미설정" };
+}
+function renderCalibTab() {
+  const urlInput = $("#lensDbUrlInput");
+  if (!urlInput) return; // DOM 준비 전
+  if (document.activeElement !== urlInput) urlInput.value = state.settings.lensDbUrl || "";
+  const st = lensStatusChipMeta();
+  const chip = $("#lensStatusChip");
+  chip.className = "chip dot" + st.cls;
+  chip.textContent = st.text;
+  $("#lensErrBox").style.display = state.lensStatus === "err" ? "block" : "none";
+  $("#lensErrBox").textContent = state.lensErr || "";
+  $("#lensCountHint").textContent = state.settings.lensDbUrl
+    ? (state.lenses.length ? `보정 세션에서 선택 가능한 렌즈 ${state.lenses.length}개 (INNO Prism과 실시간 동일 목록은 아니며, "새로고침"으로 갱신)` : "")
+    : "URL을 저장하면 Prism에 등록된 렌즈 목록을 불러옵니다.";
+
+  const wrap = $("#calibListWrap");
+  if (!wrap) return;
+  if (!state.calibs.length) {
+    wrap.innerHTML = `<div class="empty"><b>등록된 보정 세션이 없습니다</b>"+ 새 보정 세션"으로 측정 시작 전 확보한 빔·파워 보정 값을 기록하세요.</div>`;
+    return;
+  }
+  const now = Date.now();
+  wrap.innerHTML = `<table class="grid"><thead><tr><th>일시</th><th>λ (nm)</th><th>렌즈</th><th>계수</th><th>유효기한</th><th></th></tr></thead><tbody>${
+    state.calibs.map(c => `<tr>
+      <td>${fmtDateTime(c.at)}</td>
+      <td class="mono">${c.lambdaNm ?? "—"}</td>
+      <td>${esc((c.lens && c.lens.model) || "—")}${c.lens && c.lens.mag ? ` (${esc(String(c.lens.mag))}×)` : ""}</td>
+      <td class="mono">${c.coefficient ?? "—"}</td>
+      <td>${c.validUntil ? fmtDate(c.validUntil) : "무기한"}${c.validUntil && c.validUntil < now ? ' <span class="badge shell">만료</span>' : ""}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn sm" data-editcalib="${esc(c.id)}">편집</button>
+        <button class="btn sm danger" data-delcalib="${esc(c.id)}">삭제</button>
+      </td>
+    </tr>`).join("")
+  }</tbody></table>`;
+  $$("[data-editcalib]", wrap).forEach(b => b.onclick = () => openCalibEditor(state.calibs.find(c => c.id === b.dataset.editcalib)));
+  $$("[data-delcalib]", wrap).forEach(b => b.onclick = async () => {
+    if (!confirm("이 보정 세션을 삭제할까요? (이미 Run에 연결된 경우 해당 Run은 보정 미연결로 남습니다)")) return;
+    try { await Sync.deleteCalib(b.dataset.delcalib); toast("삭제했습니다"); }
+    catch (e) { toast("삭제 실패: " + (e.message || e), 4000); }
+  });
+}
+function openCalibEditor(existing) {
+  const box = $("#calibEditor");
+  const c = existing ? JSON.parse(JSON.stringify(existing)) : {
+    lambdaNm: "", lens: { key: "", maker: "", model: "", mag: "", na: "", medium: "" },
+    coefficient: "", transmission: "", umPerPx: "", cameraPitch: "",
+    areaBasis: "gauss", densityMode: "peak", pathNote: "", validUntil: null,
+  };
+  const lensOptions = state.lenses.map(l => `<option value="${esc(l._key)}">${esc(lensLabel(l))}</option>`).join("");
+  box.innerHTML = `
+    <h3 style="font-size:14px">${existing ? "보정 세션 편집" : "새 보정 세션"}</h3>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>λ (nm)</label><input type="number" id="cbLambda" value="${c.lambdaNm ?? ""}"></div>
+      <div class="field"><label>렌즈 (Prism 목록)</label>
+        <select id="cbLensSel"><option value="">— 직접 입력 —</option>${lensOptions}</select></div>
+      <div class="field"><label>유효기한</label><input type="date" id="cbValidUntil" value="${c.validUntil ? fmtDate(c.validUntil) : ""}"></div>
+    </div>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>렌즈 제조사</label><input type="text" id="cbMaker" value="${esc((c.lens && c.lens.maker) || "")}"></div>
+      <div class="field"><label>렌즈 모델</label><input type="text" id="cbModel" value="${esc((c.lens && c.lens.model) || "")}"></div>
+      <div class="field"><label>배율</label><input type="number" id="cbMag" value="${(c.lens && c.lens.mag) || ""}"></div>
+      <div class="field"><label>NA</label><input type="number" step="0.01" id="cbNa" value="${(c.lens && c.lens.na) || ""}"></div>
+    </div>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>계수 (coefficient)</label><input type="number" id="cbCoef" value="${c.coefficient ?? ""}"></div>
+      <div class="field"><label>투과율 (%)</label><input type="number" id="cbTrans" value="${c.transmission ?? ""}"></div>
+      <div class="field"><label>μm/px</label><input type="number" id="cbUmPerPx" value="${c.umPerPx ?? ""}"></div>
+      <div class="field"><label>카메라 픽셀피치(μm)</label><input type="number" id="cbCamPitch" value="${c.cameraPitch ?? ""}"></div>
+    </div>
+    <div class="grid-form" style="margin-top:8px">
+      <div class="field"><label>면적 기준</label>
+        <select id="cbAreaBasis"><option value="gauss"${c.areaBasis !== "d4sigma" ? " selected" : ""}>gauss (1/e²)</option><option value="d4sigma"${c.areaBasis === "d4sigma" ? " selected" : ""}>D4σ</option></select></div>
+      <div class="field"><label>밀도 기준</label>
+        <select id="cbDensityMode">
+          <option value="peak"${c.densityMode === "peak" || !c.densityMode ? " selected" : ""}>peak</option>
+          <option value="e2avg"${c.densityMode === "e2avg" ? " selected" : ""}>e2avg</option>
+          <option value="fwhm"${c.densityMode === "fwhm" ? " selected" : ""}>fwhm</option>
+        </select></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>경로/조건 메모</label><input type="text" id="cbPathNote" value="${esc(c.pathNote || "")}"></div>
+    <div class="rowbar" style="margin-top:8px">
+      <span class="spacer"></span>
+      <button class="btn sm ghost" id="cbCancel">취소</button>
+      <button class="btn sm primary" id="cbSave">저장</button>
+    </div>`;
+  box.classList.add("on");
+  if (c.lens && c.lens.key) $("#cbLensSel").value = c.lens.key;
+  $("#cbLensSel").onchange = () => {
+    const key = $("#cbLensSel").value;
+    if (key) {
+      const l = state.lenses.find(x => x._key === key);
+      if (l) {
+        $("#cbMaker").value = l.maker || ""; $("#cbModel").value = l.model || "";
+        $("#cbMag").value = l.mag || ""; $("#cbNa").value = l.na || "";
+      }
+    }
+  };
+  $("#cbCancel").onclick = () => box.classList.remove("on");
+  $("#cbSave").onclick = async () => {
+    const lambdaNm = Number($("#cbLambda").value);
+    if (!isFinite(lambdaNm)) { toast("λ(nm)을 입력하세요"); return; }
+    const maker = $("#cbMaker").value.trim(), model = $("#cbModel").value.trim();
+    const mag = $("#cbMag").value ? Number($("#cbMag").value) : "";
+    const lensSelKey = $("#cbLensSel").value;
+    const selLens = lensSelKey ? state.lenses.find(x => x._key === lensSelKey) : null;
+    const lens = {
+      key: lensSelKey || (maker || model || mag ? lensKey({ maker, model, mag }) : ""),
+      maker, model, mag,
+      na: $("#cbNa").value ? Number($("#cbNa").value) : null,
+      medium: (selLens && selLens.medium) || "",
+    };
+    const validUntilStr = $("#cbValidUntil").value;
+    const data = {
+      lambdaNm, lens,
+      coefficient: $("#cbCoef").value ? Number($("#cbCoef").value) : null,
+      transmission: $("#cbTrans").value ? Number($("#cbTrans").value) : null,
+      umPerPx: $("#cbUmPerPx").value ? Number($("#cbUmPerPx").value) : null,
+      cameraPitch: $("#cbCamPitch").value ? Number($("#cbCamPitch").value) : null,
+      areaBasis: $("#cbAreaBasis").value, densityMode: $("#cbDensityMode").value,
+      pathNote: $("#cbPathNote").value.trim(),
+      validUntil: validUntilStr ? new Date(validUntilStr + "T23:59:59").getTime() : null,
+      at: (existing && existing.at) || Date.now(),
+    };
+    try { await Sync.saveCalib(existing ? existing.id : null, data); box.classList.remove("on"); toast("저장했습니다"); }
+    catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+}
+
 /* ---------------- 셀 편집 모달 ---------------- */
 function closeOverlay(id) { $("#" + id).classList.remove("on"); }
 function openOverlay(id) { $("#" + id).classList.add("on"); }
@@ -856,6 +1519,52 @@ function openCellModal(lotId, measId, exId, emId) {
   const lot = state.lots.find(l => l.id === lotId);
   const status = cell ? cell.status : "none";
   const modal = $("#cellModal");
+
+  /* PHASE 3: Run 티켓 발급 게이트 + 목록 (계획된 셀 이상에서만 표시) */
+  let runSectionHtml = "";
+  if (cell) {
+    const active = activeMount();
+    const mountOk = !!active;
+    const exPreset = presetById("ex", exId);
+    const lambdaLabel = exPreset ? (exPreset.sources || []).map(s => s.lambdaNm + "nm").join(", ") : exLabel(exId);
+    const allMatched = matchingCalibs(exId);
+    const validMatched = validMatchingCalibs(exId);
+    const calibOk = validMatched.length > 0;
+    const now = Date.now();
+    const cellRuns = Object.values(state.runs).filter(r => r.cellId === cid).sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0));
+    runSectionHtml = `
+    <div class="rtcard">
+      <h3>Run 티켓</h3>
+      <div class="hint" style="margin:6px 0 10px">발급하면 측정 파일과 매칭할 고유 ID가 생성되고, 셀 상태가 "예약"으로 바뀝니다.</div>
+      <div class="hint" id="rtGateBanner" style="margin-bottom:8px">
+        마운트: ${mountOk ? `<span class="gateok">✅ ${esc(active.specimen || "(이름없음)")}</span>` : `<span class="gatewarn">⚠️ 활성 마운트 없음</span>`}
+        &nbsp;·&nbsp; 보정(${esc(lambdaLabel)}): ${calibOk ? `<span class="gateok">✅ 유효 ${validMatched.length}건</span>` : `<span class="gatewarn">⚠️ 유효한 보정 세션 없음</span>`}
+      </div>
+      ${(!mountOk || !calibOk) ? `<div class="field" style="margin-bottom:8px"><label style="display:flex;align-items:center;gap:6px;font-weight:600"><input type="checkbox" id="rtOverride" style="width:auto"> 위 경고를 확인했고 그대로 발급합니다</label></div>` : ""}
+      ${allMatched.length ? `<div class="field"><label>연결할 보정 세션</label>
+        <select id="rtCalibSel">
+          <option value="">— 선택 안 함 —</option>
+          ${allMatched.map(c => `<option value="${esc(c.id)}">${fmtDate(c.at)} · ${esc((c.lens && c.lens.model) || "렌즈 미기재")}${c.validUntil && c.validUntil < now ? " (만료)" : ""}</option>`).join("")}
+        </select></div>` : ""}
+      <div class="rowbar" style="margin-top:6px"><span class="spacer"></span><button class="btn sm primary" id="rtIssue">Run 티켓 발급</button></div>
+      ${cellRuns.length ? `<div style="margin-top:10px">
+        ${cellRuns.map(r => `<div class="runrow">
+          <span class="mono">${esc(r.id.slice(0, 8))}</span>
+          <span class="badge ${r.calibStatus === "linked" ? "core" : r.calibStatus === "expired" ? "shell" : "other"}">${esc(r.calibStatus || "none")}</span>
+          <span>${fmtDateTime(r.issuedAt)}</span>
+          <span class="spacer"></span>
+          <button class="btn sm" data-copyrun="${esc(r.id)}" style="padding:2px 8px">복사</button>
+          <button class="btn sm danger" data-cancelrun="${esc(r.id)}" style="padding:2px 8px">취소</button>
+        </div>
+        <div class="runfileline">
+          ${!r.file ? `📎 파일 없음 <button class="btn" data-linkfile="${esc(r.id)}">연결</button>` :
+            r.file.attached ? `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.blobBytes)} 압축 · 클라우드 첨부됨)</span> <button class="btn" data-detachfile="${esc(r.id)}">첨부 해제</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>` :
+            `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.bytes)} · 로컬 링크)</span> <button class="btn" data-attachfile="${esc(r.id)}">클라우드에 첨부</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>`}
+        </div>`).join("")}
+      </div>` : `<div class="hint" style="margin-top:8px">아직 발급된 Run이 없습니다.</div>`}
+    </div>`;
+  }
+
   modal.innerHTML = `
     <h3>${esc(lotLabel(lot))} · ${esc(measLabel(measId))}</h3>
     <div class="sub">${esc(exLabel(exId))} · ${esc(emLabel(emId))}</div>
@@ -864,7 +1573,7 @@ function openCellModal(lotId, measId, exId, emId) {
         <select id="cmStatus">
           <option value="none"${status === "none" ? " selected" : ""}>미계획</option>
           <option value="planned"${status === "planned" ? " selected" : ""}>계획됨</option>
-          ${status !== "none" && status !== "planned" ? `<option value="${status}" selected disabled>${STATUS_META[status].label} (Phase 3+에서 자동 전이)</option>` : ""}
+          ${status !== "none" && status !== "planned" ? `<option value="${status}" selected disabled>${STATUS_META[status].label} (Run 발급/판정으로 자동 전이)</option>` : ""}
         </select></div>
       <div class="field"><label>우선순위</label>
         <select id="cmPriority">
@@ -880,7 +1589,8 @@ function openCellModal(lotId, measId, exId, emId) {
       <span class="spacer"></span>
       <button class="btn sm ghost" id="cmCancel">취소</button>
       <button class="btn sm primary" id="cmSave">저장</button>
-    </div>`;
+    </div>
+    ${runSectionHtml}`;
   openOverlay("cellOverlay");
   $("#cmCancel").onclick = () => closeOverlay("cellOverlay");
   if (cell) $("#cmDelete").onclick = async () => {
@@ -891,6 +1601,78 @@ function openCellModal(lotId, measId, exId, emId) {
     try { await Sync.deleteCell(cid); closeOverlay("cellOverlay"); toast("미계획으로 되돌렸습니다"); }
     catch (e) { toast("실패: " + (e.message || e), 4000); }
   };
+  if (cell) {
+    const active = activeMount();
+    const rtIssue = $("#rtIssue");
+    if (rtIssue) rtIssue.onclick = async () => {
+      const overrideEl = $("#rtOverride");
+      const mountOk = !!active;
+      const calibOk = validMatchingCalibs(exId).length > 0;
+      if ((!mountOk || !calibOk) && (!overrideEl || !overrideEl.checked)) {
+        toast("게이트 경고를 확인 체크하거나, 먼저 마운트/보정 세션을 준비하세요", 3200); return;
+      }
+      const calibSelEl = $("#rtCalibSel");
+      const calibId = calibSelEl ? calibSelEl.value : "";
+      const chosenCalib = calibId ? state.calibs.find(c => c.id === calibId) : null;
+      let calibStatus = "none";
+      if (chosenCalib) calibStatus = (chosenCalib.validUntil && chosenCalib.validUntil < Date.now()) ? "expired" : "linked";
+      try {
+        const runId = await Sync.issueRun(cid, {
+          lotId, mountId: active ? active.id : "", specimen: active ? (active.specimen || "") : "",
+          calibId: calibId || "", calibStatus,
+        });
+        toast("Run 티켓 발급: " + runId.slice(0, 8));
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("발급 실패: " + (e.message || e), 4000); }
+    };
+    $$("[data-copyrun]", modal).forEach(b => b.onclick = () => {
+      const id = b.dataset.copyrun;
+      try { navigator.clipboard.writeText(id); toast("runId를 복사했습니다"); }
+      catch (e) { toast(id); }
+    });
+    $$("[data-cancelrun]", modal).forEach(b => b.onclick = async () => {
+      if (!confirm("이 Run 티켓을 취소할까요?")) return;
+      const remaining = Object.values(state.runs).filter(r => r.cellId === cid && r.id !== b.dataset.cancelrun);
+      const revertStatus = (!remaining.length && status === "ticket") ? "planned" : null;
+      try {
+        await Sync.cancelRun(b.dataset.cancelrun, cid, revertStatus);
+        toast("취소했습니다");
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("취소 실패: " + (e.message || e), 4000); }
+    });
+    /* PHASE 4: 파일 연결/첨부/해제 */
+    $$("[data-linkfile]", modal).forEach(b => b.onclick = () => {
+      const r = state.runs[b.dataset.linkfile];
+      if (!r) return;
+      openFileLinkModal(r.id, measId, r.issuedAt || Date.now(), [lotId, measId, exId, emId]);
+    });
+    $$("[data-attachfile]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.attachfile];
+      if (!r) return;
+      await doAttachRunFile(r, [lotId, measId, exId, emId]);
+    });
+    $$("[data-detachfile]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.detachfile];
+      if (!r) return;
+      if (!confirm("클라우드 첨부를 해제할까요? (로컬 링크·지문은 유지됩니다)")) return;
+      try {
+        await Sync.detachRunBlob(r.id, (r.file && r.file.blobChunks) || 0);
+        toast("첨부를 해제했습니다");
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("실패: " + (e.message || e), 4000); }
+    });
+    $$("[data-unlinkfile]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.unlinkfile];
+      if (!r) return;
+      if (!confirm("파일 연결을 해제할까요?" + (r.file && r.file.attached ? " (클라우드 첨부도 함께 삭제됩니다)" : ""))) return;
+      try {
+        if (r.file && r.file.attached) await Sync.detachRunBlob(r.id, r.file.blobChunks || 0);
+        await Sync.unlinkRunFile(r.id);
+        toast("연결을 해제했습니다");
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("실패: " + (e.message || e), 4000); }
+    });
+  }
   $("#cmSave").onclick = async () => {
     const newStatus = $("#cmStatus").value;
     const priority = $("#cmPriority").value;
@@ -910,6 +1692,81 @@ function openCellModal(lotId, measId, exId, emId) {
       toast("저장했습니다");
     } catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
   };
+}
+
+/* ---------------- PHASE 4: 파일 연결 모달 ---------------- */
+function openFileLinkModal(runId, measTypeId, aroundEpochMs, reopenArgs) {
+  const modal = $("#fileModal");
+  const candidates = candidateFilesForRun(measTypeId, aroundEpochMs);
+  modal.innerHTML = `
+    <h3>파일 연결</h3>
+    <div class="sub">${state.folder.handle
+      ? `연결된 폴더에서 이 측정종류(${esc(measLabel(measTypeId))})와 시간이 가까운 후보입니다. 마지막 스캔: ${state.folder.lastScanAt ? fmtDateTime(state.folder.lastScanAt) : "아직 스캔 안 함 — 설정 탭에서 스캔하세요"}`
+      : `폴더가 연결되어 있지 않습니다 — 설정 탭에서 폴더를 연결하거나, 아래에서 파일을 직접 선택하세요.`}</div>
+    ${candidates.length ? `<div class="tpl-rows">${candidates.map((f, i) => `
+      <div class="hint" style="display:flex;align-items:center;gap:8px">
+        <button class="btn sm" data-pickcand="${i}" style="padding:2px 8px">선택</button>
+        <span class="mono">${esc(f.name)}</span>
+        <span class="muted">${fmtBytes(f.bytes)} · ${fmtDateTime(f.epochMs)}</span>
+      </div>`).join("")}</div>`
+      : (state.folder.handle ? `<div class="hint" style="margin:10px 0">이 측정종류와 일치하는 후보가 없습니다. 파일명이 규칙과 다르거나 아직 스캔하지 않았을 수 있습니다 — 아래에서 직접 선택하세요.</div>` : "")}
+    <div class="field" style="margin-top:12px"><label>또는 직접 선택</label><input type="file" id="flManual" accept=".h5"></div>
+    <div class="field" style="margin-top:8px"><label style="display:flex;align-items:center;gap:6px;font-weight:600"><input type="checkbox" id="flAttachNow" style="width:auto" checked> 연결과 동시에 클라우드에도 첨부 (압축 후 1.4MB 이하일 때)</label></div>
+    <div class="rowbar"><span class="spacer"></span><button class="btn sm ghost" id="flCancel">취소</button></div>`;
+  openOverlay("fileOverlay");
+  $("#flCancel").onclick = () => closeOverlay("fileOverlay");
+  $$("[data-pickcand]", modal).forEach(b => b.onclick = () => {
+    const f = candidates[+b.dataset.pickcand];
+    confirmLinkFile(runId, f.handle, f.name, f.relPath, reopenArgs);
+  });
+  $("#flManual").onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    confirmLinkFile(runId, file, file.name, "", reopenArgs);
+  };
+}
+async function confirmLinkFile(runId, fileOrHandle, name, relPath, reopenArgs) {
+  const attachNow = $("#flAttachNow") ? $("#flAttachNow").checked : false;
+  try {
+    const file = fileOrHandle.getFile ? await fileOrHandle.getFile() : fileOrHandle;
+    toast("해시 계산 중…");
+    const hashPrefix = await hashPrefixOf(file);
+    await Sync.linkRunFile(runId, { name, bytes: file.size, mtime: file.lastModified, hashPrefix, relPath });
+    let attached = false, gateMsg = "";
+    if (attachNow) {
+      toast("압축 중…");
+      const { chunks, compressedBytes } = await gzipBase64Chunks(file, CALIB_CHUNK_CHARS);
+      if (compressedBytes > ATTACH_SIZE_GATE) {
+        gateMsg = `연결은 완료했지만, 압축 후 ${(compressedBytes / 1024 / 1024).toFixed(2)}MB — 1.4MB 게이트 초과로 클라우드 첨부는 건너뜁니다`;
+      } else {
+        await Sync.attachRunBlob(runId, chunks, compressedBytes);
+        attached = true;
+      }
+    }
+    closeOverlay("fileOverlay");
+    toast(gateMsg || (attached ? "연결 + 첨부를 완료했습니다" : "파일을 연결했습니다"), gateMsg ? 5000 : 2600);
+    if (reopenArgs) openCellModal(...reopenArgs);
+  } catch (e) { toast("연결 실패: " + (e.message || e), 4000); }
+}
+/** 이미 링크만 되어 있고 첨부 안 된 Run의 원본을 다시 찾아 압축·첨부한다.
+ * relPath가 이번 세션의 scanFiles에 남아 있어야(같은 폴더를 스캔했어야) 재접근 가능 —
+ * 수동 선택으로 링크한 파일은 File 객체를 보관하지 않으므로 여기서는 재첨부할 수 없다
+ * (그 경우 파일 연결 모달에서 "연결과 동시에 첨부" 체크박스로 한 번에 처리하는 것이 정석). */
+async function doAttachRunFile(run, reopenArgs) {
+  const found = run.file && run.file.relPath ? state.scanFiles.find(f => f.relPath === run.file.relPath) : null;
+  if (!found) { toast("원본 파일을 다시 찾을 수 없습니다 — 폴더를 스캔한 뒤 다시 시도하거나, 연결을 해제하고 다시 연결하세요", 4500); return; }
+  try {
+    toast("압축 중…");
+    const file = await found.handle.getFile();
+    const { chunks, compressedBytes } = await gzipBase64Chunks(file, CALIB_CHUNK_CHARS);
+    if (compressedBytes > ATTACH_SIZE_GATE) {
+      toast(`압축 후 ${(compressedBytes / 1024 / 1024).toFixed(2)}MB — 1.4MB 게이트 초과로 첨부를 건너뜁니다(링크는 유지됩니다)`, 5000);
+      return;
+    }
+    await Sync.attachRunBlob(run.id, chunks, compressedBytes);
+    toast("클라우드에 첨부했습니다");
+    if (reopenArgs) openCellModal(...reopenArgs);
+  } catch (e) { toast("첨부 실패: " + (e.message || e), 4000); }
 }
 
 /* ---------------- 조합 추가 모달 ---------------- */
@@ -1225,13 +2082,28 @@ function bindUi() {
   $("#btnAddCol").onclick = openAddColumnModal;
   $("#btnApplyTpl").onclick = openApplyTemplateModal;
   $("#btnNewTpl").onclick = () => openTemplateEditor(null);
+  /* PHASE 3 */
+  $("#chipMount").onclick = openMountModal;
+  $("#btnNewCalib").onclick = () => openCalibEditor(null);
+  $("#btnRefreshLens").onclick = () => fetchLenses();
+  $("#btnSaveLensUrl").onclick = async () => {
+    const u = $("#lensDbUrlInput").value.trim();
+    try { await Sync.saveSettings({ lensDbUrl: u }); toast("저장했습니다"); }
+    catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
+  };
+  /* PHASE 4 */
+  $("#btnConnectFolder").onclick = connectFolder;
+  $("#btnScanFolder").onclick = scanFolder;
+  $("#btnDisconnectFolder").onclick = disconnectFolder;
   $$(".overlay").forEach(ov => ov.addEventListener("click", e => { if (e.target === ov) ov.classList.remove("on"); }));
   $("#footBuild").textContent = "빌드 " + new Date().toISOString().slice(0, 10);
 }
 
 (function boot() {
   bindUi();
+  renderSettingsFolder();
   Sync.tryRestore();
+  restoreFolder();
 })();
 </script>
 </body>
