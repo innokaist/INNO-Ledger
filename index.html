@@ -210,6 +210,8 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 .prismline:last-child{border-bottom:none}
 .prismline .btn{padding:1px 8px;font-size:11px}
 .prismline .spark{display:block;flex:none}
+.cellspark{display:block;margin:3px auto 0;opacity:.8}
+td.cellslot:hover .cellspark{opacity:1}
 .chiprow{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:4px}
 .chiprow label{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500}
 .chiprow input{width:auto}
@@ -226,6 +228,16 @@ html[data-theme="dark"] td.cellslot:hover .cellbadge{filter:brightness(1.15)}
 .dashtable th,.dashtable td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
 .dashtable th:first-child,.dashtable td:first-child{text-align:left}
 .wizgroup{border:1px solid var(--line);border-radius:var(--r-s);padding:12px;margin-bottom:8px}
+.modalcard.stickyfoot{display:flex;flex-direction:column;overflow:hidden}
+.modalcard.stickyfoot .scrollbody{overflow:auto;flex:1 1 auto;min-height:0;margin:0 -20px;padding:0 20px}
+.modalcard.stickyfoot .stickybar{flex:none;border-top:1px solid var(--line);padding:12px 0 0;margin-top:12px;background:var(--card)}
+.wizev{margin-top:8px;font-size:11.5px}
+.wizev summary{cursor:pointer;color:var(--muted);user-select:none}
+.wizev table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
+.wizev th,.wizev td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top;white-space:nowrap}
+.wizev th{color:var(--muted);font-weight:700}
+.wizevwrap{overflow-x:auto}
+.guessed{color:var(--good);font-weight:700}
 </style>
 </head>
 <body>
@@ -747,18 +759,206 @@ const FolderStore = (() => {
   return { set, get, del };
 })();
 
+/* ---------------- PHASE 8: h5 메타데이터 직접 읽기 (h5wasm) ----------------
+ * 브라우저에서 h5wasm(WASM 빌드, INNO Prism과 동일 버전 0.10.3)으로 h5 파일을 열어
+ * INNO Optics Phase 7의 /app/settings attr 6종(run_id·sample·specimen·lambda_ex_nm·
+ * objective·calib_id)과, Spot 매칭(§6)·소급등록 하드웨어 유사도 그룹핑(§8)에 필요한
+ * scan_2d 범위(h_axis/v_axis/h_center/v_center/h_range/v_range)·스테이지 위치
+ * (PI_xyz_stage의 x/y/z_position)를 읽는다. attr 이름은 INNO Prism의 h5layer.js
+ * extractMeta()와 그대로 맞춘다(같은 storage.py가 두 앱을 위해 쓰는 값이므로 자연히
+ * 일치). CDN 로딩은 Sync.loadSdk()(Firebase SDK 동적 로딩)와 같은 패턴 — Ledger는
+ * 원래도 네트워크 없이는 못 여는 앱이라(로그인 필요) 이 계층을 추가해도 오프라인
+ * 사용성이 달라지지 않는다. 실패해도(오래된 h5, calib_id 없음, CDN 접근 불가 등)
+ * 조용히 빈 메타로 낮아지고 기존 파일명 매칭(FNAME_RE)이 대체 경로로 그대로 남는다
+ * — 필수 계층이 아니라 있으면 더 정확해지는 보강 계층이다. */
+let h5wasmModulePromise = null;
+function ensureH5Wasm() {
+  if (h5wasmModulePromise) return h5wasmModulePromise;
+  h5wasmModulePromise = (async () => {
+    if (!window.h5wasm) {
+      await new Promise((res, rej) => {
+        const sc = document.createElement("script");
+        sc.src = "https://cdn.jsdelivr.net/npm/h5wasm@0.10.3/dist/iife/h5wasm.js";
+        sc.onload = res; sc.onerror = () => rej(new Error("h5wasm 로드 실패(네트워크 확인)"));
+        document.head.appendChild(sc);
+      });
+    }
+    return await window.h5wasm.ready;
+  })();
+  return h5wasmModulePromise;
+}
+function h5AttrsOf(obj) {
+  const out = {};
+  try {
+    const a = obj.attrs || {};
+    for (const k of Object.keys(a)) {
+      try {
+        let v = a[k] && "value" in a[k] ? a[k].value : a[k];
+        if (ArrayBuffer.isView(v)) v = Array.from(v);
+        out[k] = v;
+      } catch (e) { /* skip */ }
+    }
+  } catch (e) { /* attrs 없음 */ }
+  return out;
+}
+function h5SafeGet(file, path) {
+  try { return file.get(path); } catch (e) { return null; }
+}
+let h5MetaSeq = 0;
+const h5MetaCache = new Map();   // "relPath|size|mtimeMs" -> Promise<meta> — 세션 중 재파싱 방지
+/** fileOrHandle: File 객체 또는 FileSystemFileHandle. cacheKey를 주면 결과를 메모이즈한다.
+ * 절대 throw하지 않는다 — 실패 시 {ok:false, error} 를 돌려주고 호출측은 그냥 그 파일을
+ * "h5 메타 없음"으로 취급하면 된다(파일명 기반 매칭은 항상 그대로 동작). */
+async function readH5Meta(fileOrHandle, cacheKey) {
+  if (cacheKey && h5MetaCache.has(cacheKey)) return h5MetaCache.get(cacheKey);
+  const p = (async () => {
+    const meta = { ok: false };
+    let vpath = null, h5 = null, Module = null;
+    try {
+      Module = await ensureH5Wasm();
+      const file = fileOrHandle.getFile ? await fileOrHandle.getFile() : fileOrHandle;
+      const buf = new Uint8Array(await file.arrayBuffer());
+      vpath = `/ledger_work/m${++h5MetaSeq}.h5`;
+      try { Module.FS.mkdir("/ledger_work"); } catch (e) {}
+      Module.FS.writeFile(vpath, buf);
+      h5 = new window.h5wasm.File(vpath, "r");
+      const app = h5SafeGet(h5, "app/settings");
+      if (app) {
+        const a = h5AttrsOf(app);
+        if (a.run_id) meta.run_id = String(a.run_id);
+        if (a.sample) meta.sample = String(a.sample);
+        if (a.specimen) meta.specimen = String(a.specimen);
+        if (a.lambda_ex_nm != null && a.lambda_ex_nm !== "") meta.lambda_ex_nm = Number(a.lambda_ex_nm);
+        if (a.objective) meta.objective = String(a.objective);
+        if (a.calib_id) meta.calib_id = String(a.calib_id);
+      }
+      const stage = h5SafeGet(h5, "hardware/PI_xyz_stage/settings");
+      if (stage) {
+        const a = h5AttrsOf(stage);
+        ["x", "y", "z"].forEach(ax => {
+          const v = a[`${ax}_position`];
+          if (v != null && v !== "") meta[`stage_${ax}`] = Number(v);
+        });
+      }
+      /* PHASE 10: root의 time_id — ScopeFoundry가 저장 시각을 Unix초로 남긴다. 사용자가
+       * 파일 이름을 고쳐 시각(HHMMSS)을 지워도 이 값은 그대로라, 시각의 1차 출처로 삼는다.
+       * (실제 파일 실사에서 파일명 260803… ↔ time_id 2026-08-03 21:35 KST 일치 확인) */
+      const rootAttrs = h5AttrsOf(h5SafeGet(h5, "/") || h5);
+      if (rootAttrs.time_id != null && isFinite(Number(rootAttrs.time_id))) meta.time_id = Number(rootAttrs.time_id);
+      if (rootAttrs.unique_id) meta.unique_id = String(rootAttrs.unique_id);
+      /* PHASE 10 — 여기 λ를 하드웨어에서 직접 읽는다. 설계 확정본 §5의 lambda_ex_nm attr은
+       * Optics Phase 7 이후 파일에만 있는데, 실사해 보니 그 이전 파일도 레이저 컨트롤러
+       * 하드웨어 그룹에 wavelength와 laser_state를 남기고 있었다. laser_state가 ON인 것만
+       * 실제로 시료를 때린 빛이다(OFF인 레이저의 파장을 쓰면 조용히 틀린 그룹이 된다). */
+      const lasers = [];
+      ["Inner_controller", "Outer_controller"].forEach(hwName => {
+        const g = h5SafeGet(h5, `hardware/${hwName}/settings`);
+        if (!g) return;
+        const a = h5AttrsOf(g);
+        const nm = parseFloat(String(a.wavelength == null ? "" : a.wavelength).replace(/[^\d.]/g, ""));
+        if (!isFinite(nm) || nm <= 0) return;
+        const st = String(a.laser_state == null ? "" : a.laser_state).toUpperCase();
+        lasers.push({ hw: hwName, lambdaNm: nm, on: st === "ON" || a.laser_state === true });
+      });
+      if (lasers.length) meta.lasers = lasers;
+      if (meta.lambda_ex_nm != null) meta.lambda_src = "attr";
+      else {
+        const onL = lasers.filter(l => l.on);
+        if (onL.length === 1) { meta.lambda_ex_nm = onL[0].lambdaNm; meta.lambda_src = "laser_hw"; }
+        else if (onL.length > 1) { meta.lambda_multi = onL.map(l => l.lambdaNm); meta.lambda_src = "laser_hw_multi"; }
+      }
+      const measRoot = h5SafeGet(h5, "measurement");
+      if (measRoot && typeof measRoot.keys === "function") {
+        let measKeys = [];
+        try { measKeys = measRoot.keys(); } catch (e) {}
+        meta.measGroup = measKeys[0] || null;
+        /* PHASE 10 — 검출기·휠·파워미터. 설계 확정본 §8이 "휠·검출기는 h5에 기록되지 않는다"고
+         * 적어둔 것은 §5의 attr 6종만 보고 판단한 오류였다. 실제 파일에는 측정 settings에
+         * collectors / collect_*(불리언) / wheel_hw / powermeter가 그대로 들어 있다. */
+        if (meta.measGroup) {
+          // collectors는 settings가 아니라 측정 그룹 자체의 attr이다(실사로 확인).
+          const mg = h5SafeGet(h5, `measurement/${meta.measGroup}`);
+          if (mg) {
+            const ag = h5AttrsOf(mg);
+            if (ag.collectors) meta.collectors = String(ag.collectors);
+          }
+          const ms = h5SafeGet(h5, `measurement/${meta.measGroup}/settings`);
+          if (ms) {
+            const am = h5AttrsOf(ms);
+            // HDF5의 bool attr은 h5wasm을 거치면 숫자 1/0으로 돌아온다(실측 확인) —
+            // true/"True"만 보면 검출기를 하나도 못 읽는다.
+            const truthy = v => v === true || v === 1 || String(v).toLowerCase() === "true";
+            const onDet = Object.keys(am).filter(k => /^collect_/.test(k) && truthy(am[k]));
+            if (onDet.length) meta.detectors = onDet.map(k => k.replace(/^collect_/, ""));
+            if (am.wheel_hw) meta.wheel = String(am.wheel_hw);
+            if (am.powermeter) meta.powermeter = String(am.powermeter);
+          }
+        }
+        if (measKeys.includes("scan_2d")) {
+          const s2 = h5SafeGet(h5, "measurement/scan_2d/settings");
+          if (s2) {
+            const a2 = h5AttrsOf(s2);
+            ["h_axis", "v_axis"].forEach(k => { if (a2[k]) meta[k] = String(a2[k]); });
+            ["h_center", "v_center", "h_range", "v_range"].forEach(k => {
+              if (a2[k] != null && a2[k] !== "") meta[k] = Number(a2[k]);
+            });
+          }
+        }
+      }
+      meta.ok = true;
+    } catch (e) {
+      meta.error = String((e && e.message) || e);
+    } finally {
+      try { if (h5) h5.close(); } catch (e) {}
+      try { if (Module && vpath) Module.FS.unlink(vpath); } catch (e) {}
+    }
+    return meta;
+  })();
+  if (cacheKey) h5MetaCache.set(cacheKey, p);
+  return p;
+}
+
 /* ---------------- PHASE 4: h5 폴더 스캔 (File System Access API) ----------------
  * 파일명 규칙(설계 확정본 §0): YYMMDD_HHMMSS_<measurement>.h5 — INNO Optics 저장 규약.
- * h5 내부 attr까지 읽지는 않는다(브라우저에 HDF5 파서가 없음) — Run 연결 후보는
- * 파일명에서 뽑은 시각·측정종류 슬러그만으로 좁힌다. 슬러그가 측정종류 id와
- * 정확히 일치하지 않으면(구형 파일명 등) 후보에 나타나지 않고, 수동 선택으로 대체한다. */
-const FNAME_RE = /^(\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})_(.+)\.h5$/i;
-function parseH5Name(name) {
+ * 스캔 자체는 여전히 파일명만 본다(수천 개를 한 번에 열어 h5wasm으로 파싱하면 느림) —
+ * 파일명에서 뽑은 시각·측정종류 슬러그로 후보를 1차로 좁힌다. 실제 h5 attr 확인(readH5Meta)은
+ * 파일 연결 모달처럼 후보가 소수일 때는 그 자리에서, 소급 등록 마법사(PHASE 8 아래)처럼
+ * "아직 어디에도 안 걸린 파일 전체"가 대상일 때는 마법사를 여는 시점에 한꺼번에 수행한다.
+ * 슬러그가 측정종류 id와 정확히 일치하지 않으면(구형 파일명 등) 후보에 나타나지
+ * 않고, 수동 선택으로 대체한다. */
+/* PHASE 10 — 실제 파일명 실사 후 전면 재작성.
+ * INNO Optics의 저장 규약은 {timestamp:%y%m%d_%H%M%S}_{measurement.name}.h5 이지만, 실사용
+ * 파일은 사람이 이름을 고쳐 시각(HHMMSS)을 빼고 뒤에 샘플·조건을 덧붙인 형태가 흔하다
+ * (실제 예: "260803_power_scan_WJ-0139c 1 Oil Blue.h5"). 기존 정규식은 HHMMSS를 필수로
+ * 요구해서 이런 파일을 전부 파싱 실패(null)시켰고, 그 결과 측정종류 자동 인식·시각 기반
+ * 그룹핑·후보 매칭이 통째로 죽어 있었다 — 사용자가 "파일명에 다 적혀 있는데 왜 손으로
+ * 입력해야 하느냐"고 지적한 것의 실제 원인이 이것이다.
+ * 이제 HHMMSS는 선택이고, 측정종류는 알려진 measTypeId 중 가장 긴 것부터 접두 매칭해
+ * 잘라내며(측정종류 자체에 '_'가 들어 있어 단순 분할이 불가능하다), 그 뒤에 남는 것은
+ * "자유 토큰"으로 보관해 Lot·시편 추정에 쓴다. */
+const FNAME_RE = /^(\d{2})(\d{2})(\d{2})(?:_(\d{2})(\d{2})(\d{2}))?[_ -]+(.*?)\.h5$/i;
+function knownMeasIds() {
+  const ids = (state.presets.meas || []).map(m => m.measId).filter(Boolean);
+  return (ids.length ? ids : SEED_MEAS.map(m => m.id)).slice().sort((a, b) => b.length - a.length);
+}
+function splitMeasAndRest(rest, measHint) {
+  const cands = (measHint ? [measHint] : []).concat(knownMeasIds());
+  for (const id of cands) {
+    if (!id) continue;
+    const re = new RegExp("^" + String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=$|[_ -])", "i");
+    if (re.test(rest)) return { measId: id, free: rest.slice(String(id).length).replace(/^[_ -]+/, "").trim() };
+  }
+  return { measId: "", free: String(rest || "").trim() };
+}
+function parseH5Name(name, measHint) {
   const m = FNAME_RE.exec(name);
   if (!m) return null;
-  const [, yy, mo, dd, hh, mi, ss, slug] = m;
-  const epochMs = new Date(2000 + (+yy), (+mo) - 1, +dd, +hh, +mi, +ss).getTime();
-  return { epochMs, slug };
+  const [, yy, mo, dd, hh, mi, ss, rest] = m;
+  const hasTime = hh != null;
+  const epochMs = new Date(2000 + (+yy), (+mo) - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
+  const sp = splitMeasAndRest(rest || "", measHint);
+  return { epochMs, hasTime, slug: sp.measId, free: sp.free,
+    freeTokens: sp.free ? sp.free.split(/[\s_]+/).filter(Boolean) : [] };
 }
 function candidateFilesForRun(measTypeId, aroundEpochMs) {
   return state.scanFiles
@@ -815,6 +1015,9 @@ async function scanFolder() {
           name, relPath: relPrefix + name, bytes: file.size, mtimeMs: file.lastModified,
           epochMs: parsed ? parsed.epochMs : file.lastModified,
           measId: parsed ? parsed.slug : "",
+          free: parsed ? parsed.free : "",
+          freeTokens: parsed ? parsed.freeTokens : [],
+          hasTime: parsed ? parsed.hasTime : false,
           handle: entry,
         });
       }
@@ -973,10 +1176,14 @@ function buildPrismSpark(a) {
   } catch (e) { return null; }
 }
 /** 작은 인라인 로그-로그 SVG — 원본 데이터점(점) + 모델곡선(선). 저장된 값이 전부 숫자라 별도
- * 이스케이프가 필요 없다. */
-function sparkSvgHtml(spark) {
+ * 이스케이프가 필요 없다.
+ * PHASE 9: 매트릭스 셀용 축소본(§7 "T2 썸네일"의 매트릭스 부분)을 추가하면서 크기·점 표시 여부를
+ * 인자로 뺐다. 축소본을 따로 구현하지 않고 같은 함수를 공유하는 이유는, 두 벌로 나누면 좌표
+ * 변환 로직이 나중에 한쪽만 고쳐져 서로 다른 그림을 그리게 될 위험이 있기 때문이다. */
+function sparkSvgHtml(spark, opts) {
   if (!spark || !spark.curveP || !spark.curveP.length) return "";
-  const W = 168, H = 44, PAD = 3;
+  const o = opts || {};
+  const W = o.w || 168, H = o.h || 44, PAD = o.pad != null ? o.pad : 3;
   const allP = spark.curveP.concat(spark.P || []).filter(v => isFinite(v) && v > 0);
   const allI = spark.curveI.concat(spark.I || []).filter(v => isFinite(v) && v > 0);
   if (!allP.length || !allI.length) return "";
@@ -986,9 +1193,20 @@ function sparkSvgHtml(spark) {
   const sx = v => PAD + (maxX > minX ? (Math.log10(v) - minX) / (maxX - minX) : 0.5) * (W - 2 * PAD);
   const sy = v => H - PAD - (maxY > minY ? (Math.log10(Math.max(v, 1e-12)) - minY) / (maxY - minY) : 0.5) * (H - 2 * PAD);
   const curvePts = spark.curveP.map((p, i) => sx(p).toFixed(1) + "," + sy(spark.curveI[i]).toFixed(1)).join(" ");
-  const dots = (spark.P || []).map((p, i) => `<circle cx="${sx(p).toFixed(1)}" cy="${sy(spark.I[i]).toFixed(1)}" r="1.4" fill="var(--sub)" fill-opacity="0.55"/>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="spark">` +
-    `<polyline points="${curvePts}" fill="none" stroke="var(--primary)" stroke-width="1.6"/>${dots}</svg>`;
+  // 축소본에서는 데이터점을 그리지 않는다 — 56x18 안에서는 점이 곡선과 뭉개져 오히려 읽기 나빠진다.
+  const dots = o.dots === false ? "" : (spark.P || []).map((p, i) => `<circle cx="${sx(p).toFixed(1)}" cy="${sy(spark.I[i]).toFixed(1)}" r="1.4" fill="var(--sub)" fill-opacity="0.55"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="${o.cls || "spark"}" aria-hidden="true">` +
+    `<polyline points="${curvePts}" fill="none" stroke="var(--primary)" stroke-width="${o.stroke || 1.6}"/>${dots}</svg>`;
+}
+/** PHASE 9: 매트릭스 셀 칸 안에 들어가는 초소형 썸네일. 대표 Run(repRunId)이 지정돼 있고 그
+ * Run에 Prism 스파크라인 데이터가 있을 때만 그린다 — 즉 "성공" 판정이 난 셀에만 붙으므로
+ * 전체 셀 수와 무관하게 렌더링 대상이 적게 유지된다(성능 상한이 구조적으로 걸려 있음).
+ * 원본 h5도 이미지 파일도 읽지 않고 Firestore 문서 안의 숫자 배열만 쓰므로 추가 I/O가 없다. */
+function cellSparkHtml(cell) {
+  if (!cell || !cell.repRunId) return "";
+  const r = state.runs[cell.repRunId];
+  if (!r || !r.prism || !r.prism.spark) return "";
+  return sparkSvgHtml(r.prism.spark, { w: 56, h: 18, pad: 2, dots: false, stroke: 1.2, cls: "cellspark" });
 }
 /* ---------------- PHASE 5: 자동 게이트(L1) — 현재 power_scan 1종만 ----------------
  * §3 L1 예시 6항목 중 "다크 게이트 초과 데이터점 비율"은 제외했다 — Prism JSON에 바로 쓸 수
@@ -1311,6 +1529,23 @@ const Sync = (() => {
   async function unlinkRunFile(runId) {
     await col("opt_runs").doc(runId).set({ file: null }, { merge: true });
   }
+  /* ---- PHASE 8: Spot 매칭(설계 확정본 §6)에 쓰는 필드 3종 ----
+   * stage:{x,y,z}는 다른 하위 필드가 없는 단순 맵이라도, 나중에 이 중 일부만 알 때(예: z만
+   * 재확인) 나머지를 지우지 않도록 file과 같은 이유로 dot-path로 갱신한다. scanRegion과
+   * contextRuns는 항상 전체를 다시 계산해 통째로 넣는 값이라(부분 필드 개념이 없음) merge:true
+   * 전체 교체로 충분하다(prism/autoGate/verdict와 같은 패턴). */
+  async function updateRunStage(runId, stage) {
+    const patch = {};
+    ["x", "y", "z"].forEach(ax => { if (stage && stage[ax] != null && isFinite(stage[ax])) patch[`stage.${ax}`] = stage[ax]; });
+    if (!Object.keys(patch).length) return;
+    await col("opt_runs").doc(runId).set(patch, { merge: true });
+  }
+  async function updateRunScanRegion(runId, region) {
+    await col("opt_runs").doc(runId).set({ scanRegion: region }, { merge: true });
+  }
+  async function setRunContext(runId, contextRuns) {
+    await col("opt_runs").doc(runId).set({ contextRuns }, { merge: true });
+  }
   async function attachRunBlob(runId, chunks, compressedBytes) {
     const batch = state.fb.db.batch();
     chunks.forEach((c, i) => batch.set(col("opt_blob").doc(runId + "_" + i), { idx: i, total: chunks.length, data: c }));
@@ -1364,7 +1599,11 @@ const Sync = (() => {
    * 그룹핑·검증은 호출측(openRetroWizard/submitRetroWizard)에서 이미 끝낸 상태로 넘어온다.
    * 셀이 없으면 새로 만들고(status:"ticket" — 실측 파일은 있지만 아직 자동/사람 판정 전이라는 뜻),
    * 이미 있는 셀은 "미계획/계획됨"일 때만 "ticket"으로 올리고 그 이상 진행된 셀은 건드리지 않는다.
-   * mountId/calibId는 항상 비워 두고 calibStatus는 "none"으로 고정 — 소급 등록은 마운트 세션도
+   * mountId는 항상 비워 둔다 — 소급 등록은 마운트 세션도
+   * (PHASE 10 갱신) calibId/calibStatus는 더 이상 무조건 비우지 않는다: h5에 calib_id가 있으면
+   * "linked", λ·시각으로 추정해 사람이 확인한 경우 "guessed", 그 외에는 기존대로 "none"이다.
+   * "guessed"는 L1 자동 게이트의 "보정 세션 링크 존재" 항목을 통과시키지 않는다 — 추정을
+   * 확정과 같이 취급하면 §4 항목1의 "보정없음 낙인" 원칙이 무너지기 때문이다. 옛 주석:
    * 보정 세션도 사후에 알 수 없으므로, 대시보드의 "마운트 미지정"·"보정없음" 집계에 그대로 잡히는
    * 것이 정직한 표현이다(§2.4·§4 참고). Firestore batch 500건 한도를 피해 400개 단위로 나눠 커밋. */
   async function retroRegisterRuns(entries) {
@@ -1390,13 +1629,17 @@ const Sync = (() => {
           }
         }
         const runRef = col("opt_runs").doc();
-        batch.set(runRef, {
+        const runDoc = {
           cellId: en.cellId, lotId: en.lotId, specimen: en.specimen || "",
-          mountId: "", calibId: "", calibStatus: "none",
+          mountId: "", calibId: en.calibId || "", calibStatus: en.calibStatus || "none",
           issuedAt: en.acquiredAt, issuedBy: state.fb.user.email || "", acquiredAt: en.acquiredAt,
           retro: true,
           file: Object.assign({ attached: false, blobChunks: 0, blobBytes: 0 }, en.file),
-        });
+        };
+        // PHASE 10: h5에서 읽은 스테이지 좌표를 그대로 넣는다 — 소급 등록분도 Spot 매칭(§6)
+        // 대상이 된다(이전에는 좌표가 비어 있어 영구히 매칭 불가였다).
+        if (en.stage) runDoc.stage = en.stage;
+        batch.set(runRef, runDoc);
         runsCreated++;
       });
       await batch.commit();
@@ -1440,8 +1683,53 @@ const Sync = (() => {
     startMount, endMount, saveCalib, deleteCalib, issueRun, cancelRun, saveSettings,
     linkRunFile, unlinkRunFile, attachRunBlob, detachRunBlob,
     importPrismResult, setRunVerdict, retroRegisterRuns,
+    updateRunStage, updateRunScanRegion, setRunContext,
   };
 })();
+
+/* ---------------- PHASE 8: Spot 매칭 (설계 확정본 §6) ----------------
+ * "같은 시료·같은 마운트·2D scan 범위 안에 그 지점의 (x,y) 포함" 원문 그대로: 점 측정 Run의
+ * stage(§6에서 요구한 x,y — 위에서 z까지 같이 저장해 둠)가 다른 scan_2d형 Run의 scanRegion
+ * (h5의 h_center±h_range/2, v_center±v_range/2에서 유도, 원문의 존재하지 않는 imshow_extent를
+ * 대체) 안에 들어가고, mountId가 같으면 후보로 제시한다. mountId가 다르거나(§6 원문: "좌표계가
+ * 다름") 둘 중 하나라도 mountId가 비어 있으면(마운트 없이 발급된 Run·소급 등록 Run 등) 아예
+ * 후보에 넣지 않는다. h_axis/v_axis가 x/y/z 중 어느 것이든(스캔이 xy·xz·yz 어느 평면이든)
+ * 대응하는 stage 좌표를 골라 비교한다 — scan_2d.py의 h_axis/v_axis 설정이 AXES=(x,y,z) 중
+ * 임의로 선택 가능하므로. "확정 시 셀 카드에 썸네일 표시"(§6 원문)는 이번에 만들지 않았다 —
+ * h5의 image/h_array/v_array 데이터셋을 읽어 렌더링하는 별도 규모의 작업이라 범위 밖으로 뒀다
+ * (연결 자체와 후보 매칭 로직만 이번 범위). */
+function stageAxisValue(stage, axis) {
+  if (!stage) return null;
+  const v = axis === "x" ? stage.x : axis === "y" ? stage.y : axis === "z" ? stage.z : null;
+  return (v == null || !isFinite(v)) ? null : v;
+}
+function computeSpotCandidates(run) {
+  if (!run || !run.stage || !run.mountId) return [];
+  return Object.values(state.runs).filter(o => {
+    if (!o || o.id === run.id || !o.scanRegion || !o.mountId || o.mountId !== run.mountId) return false;
+    const reg = o.scanRegion;
+    const h = stageAxisValue(run.stage, reg.hAxis), v = stageAxisValue(run.stage, reg.vAxis);
+    if (h == null || v == null) return false;
+    return h >= reg.hMin && h <= reg.hMax && v >= reg.vMin && v <= reg.vMax;
+  });
+}
+function runShortLabel(o) {
+  const cell = o ? state.cells[o.cellId] : null;
+  return cell ? `${measLabel(cell.measTypeId)} · ${fmtDate(o.issuedAt)}` : (o ? o.id.slice(0, 8) : "?");
+}
+function spotLineHtml(r) {
+  if (!r.stage || r.scanRegion) return "";   // stage 없으면 아직 h5 메타 없음(구형 파일 등), scanRegion이 있으면 이 Run 자신이 2D scan이라 대상이 아님
+  if (r.contextRuns && r.contextRuns.length) {
+    const linked = r.contextRuns.map(id => state.runs[id]).filter(Boolean);
+    return `<div class="runfileline">🎯 연결된 2D scan: ${linked.length ? linked.map(o => esc(runShortLabel(o))).join(", ") : "(찾을 수 없음 — 삭제되었을 수 있음)"}
+      <button class="btn" data-unspot="${esc(r.id)}">해제</button></div>`;
+  }
+  if (!r.mountId) return `<div class="runfileline muted">🎯 Spot 매칭: 마운트 미지정이라 대상 아님</div>`;
+  const cands = computeSpotCandidates(r);
+  if (!cands.length) return `<div class="runfileline muted">🎯 Spot 매칭 후보 없음</div>`;
+  return `<div class="runfileline">🎯 Spot 매칭 후보 ${cands.length}건:
+    ${cands.map(o => `<button class="btn" data-spotpick="${esc(r.id)}" data-spotscan="${esc(o.id)}">${esc(runShortLabel(o))}</button>`).join(" ")}</div>`;
+}
 
 /* ---------------- 셀 헬퍼 ---------------- */
 function cellId(lotId, measId, exId, emId) {
@@ -1525,7 +1813,7 @@ function renderMatrix() {
       const st = cell ? (STATUS_META[cell.status] ? cell.status : "planned") : "none";
       const meta = STATUS_META[st];
       return `<td class="cellslot" data-lot="${esc(l.id)}" data-ex="${esc(c.exId)}" data-em="${esc(c.emId)}">
-        <span class="cellbadge ${meta.cls}">${esc(meta.label)}</span>
+        <span class="cellbadge ${meta.cls}">${esc(meta.label)}</span>${cellSparkHtml(cell)}
       </td>`;
     }).join("");
     return `<tr>
@@ -1653,12 +1941,13 @@ function renderCalibTab() {
     return;
   }
   const now = Date.now();
-  wrap.innerHTML = `<table class="grid"><thead><tr><th>일시</th><th>λ (nm)</th><th>렌즈</th><th>계수</th><th>유효기한</th><th></th></tr></thead><tbody>${
+  wrap.innerHTML = `<table class="grid"><thead><tr><th>일시</th><th>λ (nm)</th><th>렌즈</th><th>계수</th><th>빔 면적</th><th>유효기한</th><th></th></tr></thead><tbody>${
     state.calibs.map(c => `<tr>
       <td>${fmtDateTime(c.at)}</td>
       <td class="mono">${c.lambdaNm ?? "—"}</td>
       <td>${esc((c.lens && c.lens.model) || "—")}${c.lens && c.lens.mag ? ` (${esc(String(c.lens.mag))}×)` : ""}</td>
       <td class="mono">${c.coefficient ?? "—"}</td>
+      <td>${c.metrics ? '<span class="badge pass" title="Prism에서 빔 이미지 피팅값을 가져왔습니다 — 이 세션을 적용하면 파워밀도 환산이 완전 자동입니다">있음</span>' : '<span class="hint">없음</span>'}</td>
       <td>${c.validUntil ? fmtDate(c.validUntil) : "무기한"}${c.validUntil && c.validUntil < now ? ' <span class="badge shell">만료</span>' : ""}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn sm" data-editcalib="${esc(c.id)}">편집</button>
@@ -1673,6 +1962,12 @@ function renderCalibTab() {
     catch (e) { toast("삭제 실패: " + (e.message || e), 4000); }
   });
 }
+/* PHASE 8 — 설계 확정본 §4 항목2·4: Prism의 "빔 보정 세션 내보내기"(app.js exportCalibSession())
+ * JSON을 그대로 읽어 pairs/beam/metrics(빔 이미지 피팅 원값)를 채운다. 이 셋은 폼 입력칸이 없는
+ * "보이지 않는 필드"로, 가져온 값을 저장 시점에 그대로 함께 쓴다(재가져오기 전까지는 손대지
+ * 않음 — 기존 문서를 열었을 때 이미 있던 값도 그대로 유지). metrics가 채워지면 Prism이 이
+ * 세션을 자동 적용할 때 빔 면적(A)까지 함께 계산할 수 있어(§4 항목4 참고) "완전 자동" 파워밀도
+ * 환산이 된다 — 이게 이 가져오기 기능의 핵심 목적이다. */
 function openCalibEditor(existing) {
   const box = $("#calibEditor");
   const c = existing ? JSON.parse(JSON.stringify(existing)) : {
@@ -1680,9 +1975,19 @@ function openCalibEditor(existing) {
     coefficient: "", transmission: "", umPerPx: "", cameraPitch: "",
     areaBasis: "gauss", densityMode: "peak", pathNote: "", validUntil: null,
   };
+  let importedExtra = {
+    pairs: Array.isArray(c.pairs) && c.pairs.length ? c.pairs : null,
+    beam: c.beam || null,
+    metrics: c.metrics || null,
+  };
   const lensOptions = state.lenses.map(l => `<option value="${esc(l._key)}">${esc(lensLabel(l))}</option>`).join("");
   box.innerHTML = `
     <h3 style="font-size:14px">${existing ? "보정 세션 편집" : "새 보정 세션"}</h3>
+    <div class="rowbar" style="margin-top:8px">
+      <button class="btn sm" id="cbImportPrism" type="button">Prism 보정 세션 JSON 가져오기</button>
+      <input type="file" id="cbImportPrismFile" accept=".json,application/json" style="display:none">
+      <span class="hint" id="cbImportStatus"></span>
+    </div>
     <div class="grid-form" style="margin-top:8px">
       <div class="field"><label>λ (nm)</label><input type="number" id="cbLambda" value="${c.lambdaNm ?? ""}"></div>
       <div class="field"><label>렌즈 (Prism 목록)</label>
@@ -1718,6 +2023,42 @@ function openCalibEditor(existing) {
       <button class="btn sm primary" id="cbSave">저장</button>
     </div>`;
   box.classList.add("on");
+  function renderImportStatus() {
+    const bits = [];
+    bits.push(importedExtra.pairs ? `측정쌍 ${importedExtra.pairs.length}건` : null);
+    bits.push(importedExtra.metrics ? "빔 면적 있음(완전 자동 환산 가능)" : "빔 면적 없음(Prism에서 이 PC에 빔 이미지가 있어야 환산됨)");
+    $("#cbImportStatus").textContent = bits.filter(Boolean).length
+      ? "Prism에서 가져온 값 — " + bits.filter(Boolean).join(" · ") : "";
+  }
+  renderImportStatus();
+  $("#cbImportPrism").onclick = () => $("#cbImportPrismFile").click();
+  $("#cbImportPrismFile").onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const j = JSON.parse(await file.text());
+      if (j.coefficient == null && !j.metrics && !j.pairs) throw new Error("Prism 보정 세션 JSON이 아닌 것 같습니다(계수·측정쌍·빔 면적이 모두 없음)");
+      if (isFinite(Number(j.lambdaNm))) $("#cbLambda").value = Number(j.lambdaNm);
+      if (j.lens) {
+        if (j.lens.maker) $("#cbMaker").value = j.lens.maker;
+        if (j.lens.model) $("#cbModel").value = j.lens.model;
+        if (j.lens.mag != null) $("#cbMag").value = j.lens.mag;
+        if (j.lens.na != null) $("#cbNa").value = j.lens.na;
+      }
+      if (j.coefficient != null) $("#cbCoef").value = j.coefficient;
+      if (j.cameraPitch != null) $("#cbCamPitch").value = j.cameraPitch;
+      if (j.areaBasis) $("#cbAreaBasis").value = j.areaBasis;
+      if (j.densityMode) $("#cbDensityMode").value = j.densityMode;
+      importedExtra = {
+        pairs: Array.isArray(j.pairs) && j.pairs.length ? j.pairs : importedExtra.pairs,
+        beam: j.beam || importedExtra.beam,
+        metrics: j.metrics || importedExtra.metrics,
+      };
+      renderImportStatus();
+      toast(j.metrics ? "Prism 보정 세션을 불러왔습니다(빔 면적 포함) — 확인 후 저장하세요" : "Prism 보정 세션을 불러왔습니다 — 확인 후 저장하세요");
+    } catch (err) { toast("가져오기 실패: " + (err.message || err), 4500); }
+  };
   if (c.lens && c.lens.key) $("#cbLensSel").value = c.lens.key;
   $("#cbLensSel").onchange = () => {
     const key = $("#cbLensSel").value;
@@ -1755,6 +2096,11 @@ function openCalibEditor(existing) {
       validUntil: validUntilStr ? new Date(validUntilStr + "T23:59:59").getTime() : null,
       at: (existing && existing.at) || Date.now(),
     };
+    // Prism에서 가져온 값(폼 입력칸이 없는 필드)은 있을 때만 함께 저장한다 — 없으면 merge:true라
+    // 기존 문서의 값(재가져오기 전이면 그대로)을 건드리지 않는다.
+    if (importedExtra.pairs) data.pairs = importedExtra.pairs;
+    if (importedExtra.beam) data.beam = importedExtra.beam;
+    if (importedExtra.metrics) data.metrics = importedExtra.metrics;
     try { await Sync.saveCalib(existing ? existing.id : null, data); box.classList.remove("on"); toast("저장했습니다"); }
     catch (e) { toast("저장 실패: " + (e.message || e), 4000); }
   };
@@ -1801,7 +2147,7 @@ function openCellModal(lotId, measId, exId, emId) {
       ${cellRuns.length ? `<div style="margin-top:10px">
         ${cellRuns.map(r => `<div class="runrow">
           <span class="mono">${esc(r.id.slice(0, 8))}</span>
-          <span class="badge ${r.calibStatus === "linked" ? "core" : r.calibStatus === "expired" ? "shell" : "other"}">${esc(r.calibStatus || "none")}</span>
+          <span class="badge ${r.calibStatus === "linked" ? "core" : (r.calibStatus === "expired" || r.calibStatus === "guessed") ? "shell" : "other"}"${r.calibStatus === "guessed" ? ' title="소급 등록 시 λ·시각으로 추정해 연결한 보정입니다 — h5의 calib_id로 확정된 것이 아니므로 자동판정의 \'보정 세션 링크\' 항목은 통과로 세지 않습니다"' : ""}>${esc(r.calibStatus === "guessed" ? "보정추정" : (r.calibStatus || "none"))}</span>
           ${r.retro ? `<span class="badge other" title="소급 등록 마법사로 등록됨">소급</span>` : ""}
           <span>${fmtDateTime(r.issuedAt)}</span>
           <span class="spacer"></span>
@@ -1810,10 +2156,11 @@ function openCellModal(lotId, measId, exId, emId) {
         </div>
         <div class="runfileline">
           ${!r.file ? `📎 파일 없음 <button class="btn" data-linkfile="${esc(r.id)}">연결</button>` :
-            r.file.attached ? `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.blobBytes)} 압축 · 클라우드 첨부됨)</span> <button class="btn" data-detachfile="${esc(r.id)}">첨부 해제</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>` :
-            `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.bytes)} · 로컬 링크)</span> <button class="btn" data-attachfile="${esc(r.id)}">클라우드에 첨부</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>`}
+            r.file.attached ? `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.blobBytes)} 압축 · 클라우드 첨부됨)</span> ${fileIntegrityHtml(r)} <button class="btn" data-detachfile="${esc(r.id)}">첨부 해제</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>` :
+            `📎 ${esc(r.file.name)} <span class="muted">(${fmtBytes(r.file.bytes)} · 로컬 링크)</span> ${fileIntegrityHtml(r)} <button class="btn" data-attachfile="${esc(r.id)}">클라우드에 첨부</button> <button class="btn danger" data-unlinkfile="${esc(r.id)}">연결 해제</button>`}
         </div>
-        <div class="prismline">${prismBlockHtml(r)}</div>`).join("")}
+        <div class="prismline">${prismBlockHtml(r)}</div>
+        ${spotLineHtml(r)}`).join("")}
       </div>` : `<div class="hint" style="margin-top:8px">아직 발급된 Run이 없습니다.</div>`}
     </div>`;
   }
@@ -1904,6 +2251,31 @@ function openCellModal(lotId, measId, exId, emId) {
       if (!r) return;
       await doAttachRunFile(r, [lotId, measId, exId, emId]);
     });
+    /* PHASE 9: 원본 정밀 검증(해시 재계산) */
+    $$("[data-verifyfile]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.verifyfile];
+      if (!r) return;
+      await verifyRunFile(r, [lotId, measId, exId, emId]);
+    });
+    /* PHASE 8: Spot 매칭 확정/해제 */
+    $$("[data-spotpick]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.spotpick];
+      if (!r) return;
+      try {
+        await Sync.setRunContext(r.id, [b.dataset.spotscan]);
+        toast("2D scan을 연결했습니다");
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("연결 실패: " + (e.message || e), 4000); }
+    });
+    $$("[data-unspot]", modal).forEach(b => b.onclick = async () => {
+      const r = state.runs[b.dataset.unspot];
+      if (!r) return;
+      try {
+        await Sync.setRunContext(r.id, []);
+        toast("Spot 매칭을 해제했습니다");
+        openCellModal(lotId, measId, exId, emId);
+      } catch (e) { toast("해제 실패: " + (e.message || e), 4000); }
+    });
     $$("[data-detachfile]", modal).forEach(b => b.onclick = async () => {
       const r = state.runs[b.dataset.detachfile];
       if (!r) return;
@@ -1961,13 +2333,15 @@ function openFileLinkModal(runId, measTypeId, aroundEpochMs, reopenArgs) {
   modal.innerHTML = `
     <h3>파일 연결</h3>
     <div class="sub">${state.folder.handle
-      ? `연결된 폴더에서 이 측정종류(${esc(measLabel(measTypeId))})와 시간이 가까운 후보입니다. 마지막 스캔: ${state.folder.lastScanAt ? fmtDateTime(state.folder.lastScanAt) : "아직 스캔 안 함 — 설정 탭에서 스캔하세요"}`
+      ? `연결된 폴더에서 이 측정종류(${esc(measLabel(measTypeId))})와 시간이 가까운 후보입니다. 마지막 스캔: ${state.folder.lastScanAt ? fmtDateTime(state.folder.lastScanAt) : "아직 스캔 안 함 — 설정 탭에서 스캔하세요"} · 후보의 h5 attr을 백그라운드에서 확인해 이 Run의 ID와 정확히 일치하면 위에 따로 표시합니다(Optics 측정 태그에 이 Run의 ID를 붙여넣어 두었을 때만 가능 — Run 목록의 "복사" 버튼 참고).`
       : `폴더가 연결되어 있지 않습니다 — 설정 탭에서 폴더를 연결하거나, 아래에서 파일을 직접 선택하세요.`}</div>
-    ${candidates.length ? `<div class="tpl-rows">${candidates.map((f, i) => `
-      <div class="hint" style="display:flex;align-items:center;gap:8px">
+    <div id="flExactMatch"></div>
+    ${candidates.length ? `<div class="tpl-rows" id="flCandRows">${candidates.map((f, i) => `
+      <div class="hint" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap" data-candrow="${i}">
         <button class="btn sm" data-pickcand="${i}" style="padding:2px 8px">선택</button>
         <span class="mono">${esc(f.name)}</span>
         <span class="muted">${fmtBytes(f.bytes)} · ${fmtDateTime(f.epochMs)}</span>
+        <span class="muted small" data-candh5="${i}"></span>
       </div>`).join("")}</div>`
       : (state.folder.handle ? `<div class="hint" style="margin:10px 0">이 측정종류와 일치하는 후보가 없습니다. 파일명이 규칙과 다르거나 아직 스캔하지 않았을 수 있습니다 — 아래에서 직접 선택하세요.</div>` : "")}
     <div class="field" style="margin-top:12px"><label>또는 직접 선택</label><input type="file" id="flManual" accept=".h5"></div>
@@ -1984,6 +2358,37 @@ function openFileLinkModal(runId, measTypeId, aroundEpochMs, reopenArgs) {
     if (!file) return;
     confirmLinkFile(runId, file, file.name, "", reopenArgs);
   };
+  /* PHASE 8: 후보(최대 8개)의 h5 attr을 백그라운드에서 비동기로 확인한다. 초기 렌더는
+   * 그대로(파일명·시간 근접 기반) 유지하고, 결과가 도착하는 대로 각 행에 요약 정보를
+   * 붙이며, run_id가 이 Run과 정확히 일치하는 파일을 찾으면 목록 위에 원클릭 연결
+   * 버튼을 띄운다. h5wasm 로딩 실패 등은 조용히 무시된다(기존 흐름 그대로 동작). */
+  if (candidates.length) {
+    let exactFound = false;
+    candidates.slice(0, 8).forEach((f, i) => {
+      if (!f.handle) return;
+      const cacheKey = `${f.relPath}|${f.bytes}|${f.mtimeMs}`;
+      readH5Meta(f.handle, cacheKey).then((meta) => {
+        const el = modal.querySelector(`[data-candh5="${i}"]`);
+        if (!el || !meta || !meta.ok) return;
+        const bits = [];
+        if (meta.specimen) bits.push(esc(meta.specimen));
+        if (meta.lambda_ex_nm != null) bits.push(meta.lambda_ex_nm + "nm");
+        if (meta.objective) bits.push(esc(meta.objective));
+        el.innerHTML = bits.length ? `<span class="mono">(${bits.join(" · ")})</span>` : "";
+        if (meta.run_id && meta.run_id === runId && !exactFound) {
+          exactFound = true;
+          const box = modal.querySelector("#flExactMatch");
+          if (box) {
+            box.innerHTML = `<div class="hint" style="background:var(--ok-soft);border-radius:8px;padding:8px;margin:8px 0">
+              ✅ h5의 run_id가 이 Run 티켓과 정확히 일치하는 파일을 찾았습니다: <span class="mono">${esc(f.name)}</span>
+              <button class="btn sm primary" id="flExactPick" style="margin-left:8px">이 파일 연결</button></div>`;
+            const btn = box.querySelector("#flExactPick");
+            if (btn) btn.onclick = () => confirmLinkFile(runId, f.handle, f.name, f.relPath, reopenArgs);
+          }
+        }
+      }).catch(() => {});
+    });
+  }
 }
 async function confirmLinkFile(runId, fileOrHandle, name, relPath, reopenArgs) {
   const attachNow = $("#flAttachNow") ? $("#flAttachNow").checked : false;
@@ -1992,6 +2397,25 @@ async function confirmLinkFile(runId, fileOrHandle, name, relPath, reopenArgs) {
     toast("해시 계산 중…");
     const hashPrefix = await hashPrefixOf(file);
     await Sync.linkRunFile(runId, { name, bytes: file.size, mtime: file.lastModified, hashPrefix, relPath });
+    /* PHASE 8: Spot 매칭(§6)용 stage/scanRegion을 베스트에포트로 채운다 — 이 h5 attr 읽기가
+     * 실패하거나(h5wasm 로딩 실패·구형 파일 등) 느려도 이미 완료된 파일 연결 자체는 절대
+     * 실패로 보이면 안 되므로 별도 try로 감싸 조용히 무시한다. */
+    try {
+      const meta = await readH5Meta(file, relPath ? `${relPath}|${file.size}|${file.lastModified}` : undefined);
+      if (meta && meta.ok) {
+        if (meta.stage_x != null || meta.stage_y != null || meta.stage_z != null) {
+          await Sync.updateRunStage(runId, { x: meta.stage_x, y: meta.stage_y, z: meta.stage_z });
+        }
+        if (meta.measGroup === "scan_2d" && meta.h_axis && meta.v_axis &&
+            meta.h_center != null && meta.v_center != null && meta.h_range != null && meta.v_range != null) {
+          await Sync.updateRunScanRegion(runId, {
+            hAxis: meta.h_axis, vAxis: meta.v_axis,
+            hMin: meta.h_center - meta.h_range / 2, hMax: meta.h_center + meta.h_range / 2,
+            vMin: meta.v_center - meta.v_range / 2, vMax: meta.v_center + meta.v_range / 2,
+          });
+        }
+      }
+    } catch (e) { /* Spot 매칭은 보강 기능일 뿐 — 실패해도 연결 자체는 그대로 유지 */ }
     let attached = false, gateMsg = "";
     if (attachNow) {
       toast("압축 중…");
@@ -2027,6 +2451,59 @@ async function doAttachRunFile(run, reopenArgs) {
     toast("클라우드에 첨부했습니다");
     if (reopenArgs) openCellModal(...reopenArgs);
   } catch (e) { toast("첨부 실패: " + (e.message || e), 4000); }
+}
+
+/* ---------------- PHASE 9: 원본 유실·변조 감지 (설계 확정본 §7 "로컬 원본 링크") ----------------
+ * §7이 처음부터 요구했지만 Phase 4~8 내내 미뤄뒀던 항목. 두 단계로 나눴다:
+ *  (1) 즉시 판정 — 파일 I/O 없이 state.scanFiles(마지막 스캔 결과)의 relPath·bytes만 대조한다.
+ *      셀 모달을 열 때마다 공짜로 계산되므로 항상 표시한다.
+ *  (2) 정밀 검증 — 사용자가 "원본 확인"을 눌렀을 때만 실제로 파일을 읽어 hashPrefixOf()를
+ *      다시 계산해 연결 당시의 지문과 대조한다.
+ * (1)만으로도 "파일이 사라졌다"·"크기가 달라졌다"는 대부분의 사고를 잡고, (2)는 크기는 같은데
+ * 내용이 바뀐 드문 경우(재저장·부분 손상)까지 잡는다. 해시는 앞뒤 64KB만 보므로 파일이 커도 빠르다.
+ * 검증 결과를 Firestore에 쓰지 않고 세션 메모리에만 두는 이유: "지금 이 PC의 이 폴더에서
+ * 확인했다"는 사실은 다른 PC·다른 시점에서는 의미가 없어서, 저장하면 오히려 낡은 정보가 된다. */
+const fileVerifyCache = {};   // runId -> "ok" | "bad" (이번 세션 한정)
+function fileIntegrityOf(r) {
+  if (!r.file) return null;
+  if (!r.file.relPath) return { cls: "other", text: "확인 불가",
+    tip: "수동으로 선택해 연결한 파일이라 원본 경로가 없습니다 — 폴더를 연결·스캔한 뒤 다시 연결하면 확인할 수 있습니다" };
+  if (!state.scanFiles.length) return { cls: "other", text: "확인 불가",
+    tip: "이번 세션에 측정 데이터 폴더를 스캔하지 않았습니다 — 설정 탭에서 폴더를 연결·스캔하면 원본 상태를 확인합니다" };
+  const found = state.scanFiles.find(f => f.relPath === r.file.relPath);
+  if (!found) return { cls: "fail", text: "원본 유실",
+    tip: `마지막 스캔 결과에 ${r.file.relPath} 가 없습니다 — 파일이 이동·삭제되었거나, 다른 폴더를 스캔했을 수 있습니다` };
+  if (r.file.bytes != null && found.bytes !== r.file.bytes) return { cls: "fail", text: "크기 변경됨",
+    tip: `연결 당시 ${fmtBytes(r.file.bytes)} → 현재 ${fmtBytes(found.bytes)}. 같은 이름의 다른 파일이거나 덮어써졌을 수 있습니다` };
+  const v = fileVerifyCache[r.id];
+  if (v === "ok") return { cls: "pass", text: "원본 확인됨",
+    tip: "이번 세션에서 해시를 다시 계산해 연결 당시의 지문과 일치함을 확인했습니다" };
+  if (v === "bad") return { cls: "fail", text: "변조 의심",
+    tip: "경로·크기는 같지만 해시가 연결 당시와 다릅니다 — 내용이 바뀌었을 가능성이 높습니다" };
+  if (!r.file.hashPrefix) return { cls: "other", text: "지문 없음",
+    tip: "연결 당시 해시가 저장되지 않은 Run입니다 — 경로와 크기가 일치하는 것까지만 확인했습니다" };
+  return { cls: "other", text: "미검증",
+    tip: "경로·크기는 일치합니다. 내용까지 확인하려면 '원본 확인'을 누르세요", verifiable: true };
+}
+function fileIntegrityHtml(r) {
+  const st = fileIntegrityOf(r);
+  if (!st) return "";
+  return `<span class="badge ${st.cls}" title="${esc(st.tip)}">${esc(st.text)}</span>` +
+    (st.verifiable ? ` <button class="btn" data-verifyfile="${esc(r.id)}">원본 확인</button>` : "");
+}
+/** 정밀 검증 — 실제로 파일을 읽어 해시를 다시 계산한다. 결과는 세션 메모리에만 남는다. */
+async function verifyRunFile(run, reopenArgs) {
+  const found = run.file && run.file.relPath ? state.scanFiles.find(f => f.relPath === run.file.relPath) : null;
+  if (!found) { toast("원본 파일을 찾을 수 없습니다 — 폴더를 다시 스캔해 보세요", 4000); return; }
+  try {
+    const file = await found.handle.getFile();
+    const h = await hashPrefixOf(file);
+    fileVerifyCache[run.id] = (h === run.file.hashPrefix) ? "ok" : "bad";
+    toast(fileVerifyCache[run.id] === "ok"
+      ? "원본이 연결 당시와 동일합니다"
+      : "⚠️ 해시가 연결 당시와 다릅니다 — 원본이 바뀌었을 수 있습니다", 4500);
+    if (reopenArgs) openCellModal(...reopenArgs);
+  } catch (e) { toast("확인 실패: " + (e.message || e), 4000); }
 }
 
 /* ---------------- PHASE 5: Run 판정 카드(Prism 결과 요약 + 자동판정 + 사람 판정) ---------------- */
@@ -2485,82 +2962,340 @@ function renderDashboard() {
   $$("[data-opencell]", wrap).forEach(el => el.onclick = () => openCellModalById(el.dataset.opencell));
 }
 
-/* ---------------- PHASE 6: 소급 등록 마법사 (설계 확정본 §8) ----------------
+/* ---------------- PHASE 6→8: 소급 등록 마법사 (설계 확정본 §8) ----------------
  * 폴더 스캔 결과(state.scanFiles) 중 아직 어느 Run에도 연결되지 않은 파일을 묶어 그룹 단위로
- * lot·시편·조합을 지정한다. 설계 문서 원안은 "하드웨어 설정 유사도"까지 자동으로 묶는 것이었지만,
- * Phase 4와 같은 이유로(h5 attr을 읽지 않음) 실제로는 "측정종류(파일명에서 파싱, 실패하면 직접
- * 선택) + 날짜 + 시간 간격(SESSION_GAP_MS 이상 벌어지면 새 세션)"으로만 묶는다 — 완전한 자동
- * 그룹핑이 아니라 "한 화면에서 묶어 보여주는" 수준의 보조다. */
+ * lot·시편·조합을 지정한다.
+ *
+ * Phase 6 시점에는 "측정종류(파일명) + 날짜 + 시간 간격"으로만 묶었다(h5 attr을 읽지 않았기
+ * 때문). Phase 8에서 Ledger가 h5를 직접 읽는 계층(readH5Meta, 위 PHASE 8 주석)이 생기면서,
+ * 설계 문서 §8 원안의 "하드웨어 설정 유사도"에 실제로 더 가까워졌다 — 측정종류·날짜·시간
+ * 간격은 그대로 두고, 그 안에서 다시 **λ(lambda_ex_nm)·렌즈(objective)**가 같은 파일끼리만
+ * 묶는다(값이 다르면 시간이 붙어 있어도 별개 그룹으로 쪼갠다. h5에서 못 읽은 파일은 "λ 미상"/
+ * "렌즈 미상"이라는 별도 값으로 묶여, 값이 있는 파일과 섞이지 않는다 — §6 Spot 매칭의
+ * mountId 매칭과 같은 원칙: 애매하면 합치지 않고 사람이 보게 한다). 그룹의 대표 λ가 어느
+ * 여기구성(ExcitationPreset)과 일치하면 그 프리셋을 자동으로 미리 선택해 둔다(사람이 여전히
+ * 바꿀 수 있음) — 원안의 "그룹 단위로 lot(과 specimen)을 한 번 찍는다"에 조금 더 가까워졌다.
+ *
+ * 원안이 언급한 **휠·검출기** 설정은 이번에도 반영하지 못했다 — INNO Optics의 h5는 이 두
+ * 값을 attr로 남기지 않는다(§5의 attr 6종에 없고, 휠 위치는 power_scan 같은 측정 그룹 안의
+ * 데이터셋일 뿐 매 파일의 "설정값" attr이 아니다 — 새로 추가하려면 Optics 쪽 storage.py를
+ * 다시 손대야 하는 별도 작업). 스테이지 좌표(x,y,z)도 일부러 그룹핑 기준에 넣지 않았다 —
+ * 2D scan은 한 세션 안에서도 스캔 중심이 조금씩 다른 게 정상이라, 좌표로 나누면 오히려
+ * 같은 세션을 잘못 쪼갤 위험이 있다고 판단했다(대신 아래 카드에 참고용으로만 표시할 수도
+ * 있으나 이번엔 배지에도 안 넣었다 — λ·렌즈만으로도 이미 상당히 정확해졌기 때문). */
 const SESSION_GAP_MS = 4 * 60 * 60 * 1000; // 4시간 이상 비면 새 세션(그룹)으로 분리
 function alreadyLinkedRelPaths() {
   const s = new Set();
   Object.values(state.runs).forEach(r => { if (r.file && r.file.relPath) s.add(r.file.relPath); });
   return s;
 }
-function buildRetroGroups() {
+/* h5wasm 로딩 자체가 실패하거나(CDN 접근 불가 등) 개별 파일이 손상돼 있어도 readH5Meta는
+ * 절대 throw하지 않으므로(위 PHASE 8 주석) 이 함수도 실패를 특별히 처리하지 않는다 — 결과적으로
+ * 그 파일(들)은 "λ 미상·렌즈 미상" 버킷으로 떨어져, 최악의 경우 Phase 6과 동일한(측정종류+
+ * 날짜만의) 그룹핑으로 조용히 후퇴한다. CONCURRENCY로 몇 개씩 병렬로 읽어 500개 안팎도
+ * 현실적인 시간 안에 끝나게 한다(§1 규모 가정: 누적 h5 ≤500개). */
+async function analyzeFilesH5Meta(files, onProgress) {
+  const out = new Map();
+  let done = 0, idx = 0;
+  const CONCURRENCY = 4;
+  async function worker() {
+    while (idx < files.length) {
+      const f = files[idx++];
+      try {
+        const file = await f.handle.getFile();
+        const meta = await readH5Meta(file, `${f.relPath}|${f.bytes}|${f.mtimeMs}`);
+        out.set(f.relPath, meta);
+      } catch (e) { out.set(f.relPath, { ok: false }); }
+      done++;
+      if (onProgress) onProgress(done, files.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker));
+  return out;
+}
+function lambdaKeyOf(meta) {
+  if (!meta || meta.lambda_ex_nm == null || !isFinite(meta.lambda_ex_nm)) return null;
+  return String(Math.round(meta.lambda_ex_nm));
+}
+function objectiveKeyOf(meta) { return (meta && meta.objective) ? meta.objective : null; }
+function exPresetForLambda(lambdaNm) {
+  if (lambdaNm == null) return "";
+  const hit = state.presets.ex.find(p => (p.sources || []).some(s => Math.abs(s.lambdaNm - lambdaNm) < 0.5));
+  return hit ? hit.id : "";
+}
+/* ---------------- PHASE 10: h5·파일명에서 뽑은 단서로 채워 넣기 ----------------
+ * 아래 함수들은 전부 "추정"이며, 마법사는 추정 결과를 미리 선택해 두되 사용자가 눈으로
+ * 확인·수정할 수 있게 두고 근거를 그룹 카드에서 펼쳐 볼 수 있게 한다. 조용히 확정하지 않는
+ * 이유는 틀린 추정이 그대로 Run에 박히면 되돌리는 비용이 훨씬 크기 때문이다. */
+function effMeasIdOf(f, meta) { return (meta && meta.measGroup) || (f && f.measId) || ""; }
+function effEpochOf(f, meta) {
+  if (meta && meta.time_id && isFinite(meta.time_id)) return meta.time_id * 1000;
+  return f ? f.epochMs : 0;
+}
+function detectorKeyOf(meta) {
+  if (!meta || !meta.detectors || !meta.detectors.length) return null;
+  return meta.detectors.slice().sort().join(",");
+}
+function sampleKeyOf(f) {
+  return (f && f.freeTokens && f.freeTokens.length) ? f.freeTokens.join(" ").toLowerCase() : "";
+}
+const normKey = v => String(v == null ? "" : v).toLowerCase().replace(/[\s_\-]/g, "");
+/** 파일명 자유 토큰에서 Lot을 찾는다. 완전 일치를 먼저 보고, 없으면 4글자 이상 부분일치까지
+ * 본다(짧은 토큰의 부분일치는 오탐이 많아 제외). 못 찾으면 빈 문자열 — 사람이 고르면 된다. */
+function lotGuessFor(tokens) {
+  if (!tokens || !tokens.length || !state.lots.length) return "";
+  for (const t of tokens) {
+    const tn = normKey(t);
+    if (!tn) continue;
+    const hit = state.lots.find(l => normKey(lotLabel(l)) === tn);
+    if (hit) return hit.id;
+  }
+  for (const t of tokens) {
+    const tn = normKey(t);
+    if (tn.length < 4) continue;
+    const hit = state.lots.find(l => {
+      const ln = normKey(lotLabel(l));
+      return ln.length >= 4 && (ln.includes(tn) || tn.includes(ln));
+    });
+    if (hit) return hit.id;
+  }
+  return "";
+}
+/** Lot으로 인식된 토큰을 뺀 나머지를 시편 후보로 본다(예: "WJ-0139c 1 Oil Blue" → "1 Oil Blue"). */
+function specimenGuessFor(tokens, lotId) {
+  if (!tokens || !tokens.length) return "";
+  const lot = lotId ? state.lots.find(l => l.id === lotId) : null;
+  const ln = lot ? normKey(lotLabel(lot)) : "";
+  return tokens.filter(t => !ln || normKey(t) !== ln).join(" ").trim();
+}
+function emPresetForDetectors(dets) {
+  if (!dets || !dets.length) return "";
+  const d = dets.join(",").toLowerCase();
+  const want = d.includes("apd") ? "apd" : d.includes("emccd") ? "emccd" : d.includes("snspd") ? "snspd" : "";
+  if (!want) return "";
+  const hit = state.presets.em.find(x => String(x.detector || "").toLowerCase() === want);
+  return hit ? hit.id : "";
+}
+/** 그룹의 보정 세션 후보. h5에 calib_id가 있으면 그건 추정이 아니라 확정이다.
+ * 없으면(Optics Phase 7 이전 파일) λ와 시각으로 "그때 유효했던" 세션을 후보로 제안한다 —
+ * 어디까지나 추정이므로 UI에서 추정임을 명시하고 기본 선택은 하지 않는다. */
+function calibCandidatesFor(g) {
+  const ids = new Set();
+  (g.files || []).forEach(f => { const m = g.meta && g.meta[f.relPath]; if (m && m.calib_id) ids.add(m.calib_id); });
+  if (ids.size === 1) {
+    const id = Array.from(ids)[0];
+    const c = state.calibs.find(x => x.id === id);
+    return c ? { exactId: id, exact: c, list: [c] } : { exactId: id, exact: null, list: [] };
+  }
+  if (ids.size > 1) return { mixed: Array.from(ids), list: [] };
+  if (g.lambdaNm == null) return { list: [] };
+  const list = state.calibs.filter(c => {
+    const cl = Number(c.lambdaNm);
+    if (!isFinite(cl) || Math.abs(cl - g.lambdaNm) > 0.5) return false;
+    if (c.at && c.at > g.endMs) return false;
+    if (c.validUntil && c.validUntil < g.startMs) return false;
+    return true;
+  }).sort((a, b) => (b.at || 0) - (a.at || 0));
+  return { list };
+}
+/* PHASE 10 재작성 — 그룹 키에 "검출기"와 "파일명 자유 토큰(샘플 힌트)"을 추가했다.
+ * 자유 토큰이 핵심이다: 한 폴더 안에 여러 샘플이 섞여 있어도 파일명이 다르면 이제 서로 다른
+ * 그룹으로 갈라진다(사용자가 지적한 "한 폴더에 여러 샘플 공존" 문제의 실제 해결책).
+ * 시각은 파일명이 아니라 h5의 time_id를 1순위로 쓴다 — 사람이 파일명에서 시각을 지워도
+ * 세션 분할이 무너지지 않는다. 스테이지 좌표는 이번에도 그룹 기준에서 뺐다(한 세션 안에서도
+ * 2D scan 중심은 의도적으로 계속 바뀌므로 넣으면 오히려 그룹이 부당하게 쪼개진다). */
+function buildRetroGroups(h5Map) {
   const linked = alreadyLinkedRelPaths();
   const pending = state.scanFiles.filter(f => f.relPath && !linked.has(f.relPath));
-  const byMeas = {};
-  pending.forEach(f => { (byMeas[f.measId || ""] = byMeas[f.measId || ""] || []).push(f); });
+  const SEP = "\u0001";
+  const byKey = {};
+  pending.forEach(f => {
+    const meta = h5Map ? h5Map.get(f.relPath) : null;
+    const key = [
+      effMeasIdOf(f, meta) || "",
+      lambdaKeyOf(meta) ?? "?",
+      objectiveKeyOf(meta) ?? "?",
+      detectorKeyOf(meta) ?? "?",
+      sampleKeyOf(f) || "?",
+    ].join(SEP);
+    (byKey[key] = byKey[key] || []).push({ f, meta });
+  });
   const groups = [];
-  Object.keys(byMeas).forEach(measId => {
-    const files = byMeas[measId].slice().sort((a, b) => a.epochMs - b.epochMs);
+  Object.keys(byKey).forEach(key => {
+    const [measId, lambdaKey, objKey, detKey, sampKey] = key.split(SEP);
+    const items = byKey[key].slice().sort((a, b) => effEpochOf(a.f, a.meta) - effEpochOf(b.f, b.meta));
     let cur = null;
-    files.forEach(f => {
-      if (!cur || f.epochMs - cur.endMs > SESSION_GAP_MS) {
-        cur = { measId, files: [], startMs: f.epochMs, endMs: f.epochMs };
+    items.forEach(it => {
+      const t = effEpochOf(it.f, it.meta);
+      if (!cur || t - cur.endMs > SESSION_GAP_MS) {
+        cur = {
+          measId, files: [], meta: {}, startMs: t, endMs: t,
+          lambdaNm: lambdaKey === "?" ? null : Number(lambdaKey),
+          lambdaSrc: (it.meta && it.meta.lambda_src) || null,
+          objective: objKey === "?" ? null : objKey,
+          detectors: detKey === "?" ? null : detKey.split(","),
+          sampleHint: sampKey === "?" ? "" : sampKey,
+          freeTokens: (it.f.freeTokens || []).slice(),
+          wheel: (it.meta && it.meta.wheel) || null,
+        };
         groups.push(cur);
       }
-      cur.files.push(f);
-      cur.endMs = f.epochMs;
+      cur.files.push(it.f);
+      if (it.meta) cur.meta[it.f.relPath] = it.meta;
+      cur.endMs = t;
     });
+  });
+  groups.forEach(g => {
+    g.lotGuess = lotGuessFor(g.freeTokens);
+    g.specimenGuess = specimenGuessFor(g.freeTokens, g.lotGuess);
   });
   groups.sort((a, b) => b.startMs - a.startMs);
   return groups;
 }
-function openRetroWizard() {
+async function openRetroWizard() {
   if (!state.scanFiles.length) { toast("먼저 설정 탭에서 폴더를 연결하고 스캔하세요"); return; }
-  const groups = buildRetroGroups();
-  if (!groups.length) { toast("등록할 새 파일이 없습니다 — 스캔된 h5가 이미 전부 Run에 연결되어 있습니다", 4000); return; }
+  const linked = alreadyLinkedRelPaths();
+  const pendingFiles = state.scanFiles.filter(f => f.relPath && !linked.has(f.relPath));
+  if (!pendingFiles.length) { toast("등록할 새 파일이 없습니다 — 스캔된 h5가 이미 전부 Run에 연결되어 있습니다", 4000); return; }
+
   const modal = $("#retroModal");
+  modal.className = "modalcard wide";
+  modal.innerHTML = `<h3>소급 등록 마법사</h3>
+    <div class="sub">h5 ${pendingFiles.length}개를 열어 측정종류·λ·검출기·시각을 읽는 중… <span id="retroAnalyzeProgress">0/${pendingFiles.length}</span></div>`;
+  openOverlay("retroOverlay");
+
+  const h5Map = await analyzeFilesH5Meta(pendingFiles, (done, total) => {
+    const el = document.getElementById("retroAnalyzeProgress");
+    if (el) el.textContent = `${done}/${total}`;
+  });
+  if (!$("#retroOverlay").classList.contains("on")) return;
+
+  const groups = buildRetroGroups(h5Map);
+  if (!groups.length) { closeOverlay("retroOverlay"); toast("등록할 새 파일이 없습니다", 4000); return; }
   const totalFiles = groups.reduce((n, g) => n + g.files.length, 0);
+  const okMeta = f => { const mm = h5Map.get(f.relPath); return mm && mm.ok; };
+  const readOk = pendingFiles.filter(okMeta).length;
+  const withLambda = groups.reduce((n, g) => n + (g.lambdaNm != null ? g.files.length : 0), 0);
+
+  /* PHASE 10: 하단 버튼을 스크롤과 무관하게 항상 누를 수 있도록 카드를 flex 세로 배치로 바꾸고
+   * 본문만 스크롤시킨다(.stickyfoot). 그룹이 수십 개가 되면 기존에는 맨 아래까지 스크롤해야
+   * 등록 버튼에 닿을 수 있었다. */
+  modal.className = "modalcard wide stickyfoot";
   modal.innerHTML = `
     <h3>소급 등록 마법사</h3>
-    <div class="sub">아직 Run에 연결되지 않은 h5 ${totalFiles}개를 ${groups.length}개 그룹으로 묶었습니다(측정종류 + 날짜 + 4시간 이상 간격). 그룹마다 lot·시편·조합을 지정하고 "이 그룹 등록"에 체크한 뒤 아래 버튼을 누르면 셀·Run으로 한 번에 전개됩니다. 체크하지 않은 그룹은 그냥 넘어가며, 나중에 다시 열어 처리할 수 있습니다(별도의 "미상 보관함"에 저장해 두지는 않습니다 — 스캔 결과에 그대로 남아 있습니다).</div>
-    <div id="retroGroupList"></div>
-    <div class="rowbar"><span class="hint" id="retroProgress"></span><span class="spacer"></span>
+    <div class="sub">아직 Run에 연결되지 않은 h5 ${totalFiles}개를 ${groups.length}개 그룹으로 묶었습니다.
+      h5를 실제로 열어 읽은 파일 ${readOk}/${totalFiles}개, λ를 확인한 파일 ${withLambda}/${totalFiles}개.
+      그룹 기준은 <b>측정종류 · λ · 렌즈 · 검출기 · 파일명 샘플 토큰 · 4시간 이상 간격</b>입니다 —
+      같은 폴더에 여러 샘플이 섞여 있어도 파일명이 다르면 서로 다른 그룹으로 갈라집니다.
+      아래 값들은 파일에서 읽어 <span class="guessed">자동으로 채운 추정</span>이니 반드시 확인 후 등록하세요.
+      각 그룹의 "판정 근거 보기"를 펼치면 파일별로 무엇을 읽었는지 그대로 확인할 수 있습니다.</div>
+    <div class="rowbar" style="margin-top:0;margin-bottom:10px">
+      <button class="btn sm" id="retroSelAll">전체 선택</button>
+      <button class="btn sm ghost" id="retroSelNone">전체 해제</button>
+      <button class="btn sm ghost" id="retroSelReady">채워진 것만 선택</button>
+      <span class="spacer"></span>
+      <span class="hint" id="retroSelCount"></span>
+    </div>
+    <div class="scrollbody"><div id="retroGroupList"></div></div>
+    <div class="stickybar"><div class="rowbar" style="margin:0">
+      <span class="hint" id="retroProgress"></span><span class="spacer"></span>
       <button class="btn sm ghost" id="retroCancel">닫기</button>
       <button class="btn sm primary" id="retroGo">선택한 그룹 등록</button>
-    </div>`;
+    </div></div>`;
+
   const list = $("#retroGroupList");
   list.innerHTML = groups.map((g, i) => {
-    const measKnown = state.presets.meas.some(m => m.measId === g.measId);
+    const suggestedEx = exPresetForLambda(g.lambdaNm);
+    const suggestedEm = emPresetForDetectors(g.detectors);
+    const cal = calibCandidatesFor(g);
+    g._cal = cal;
+    const gu = txt => `<span class="guessed">${txt}</span>`;
+    const hw = [
+      g.lambdaNm != null ? `λ≈${g.lambdaNm}nm${g.lambdaSrc === "laser_hw" ? "(레이저 설정에서 읽음)" : ""}` : "λ 미상",
+      g.objective ? esc(g.objective) : "렌즈 미상",
+      g.detectors ? `검출 ${esc(g.detectors.join("·"))}` : "검출기 미상",
+      g.wheel ? `휠 ${esc(g.wheel)}` : null,
+    ].filter(Boolean).join(" · ");
+    const calHtml = cal.exact
+      ? `<div class="field"><label>보정 세션 ${gu("(h5의 calib_id — 확정)")}</label>
+           <select class="grpCalib"><option value="${esc(cal.exact.id)}" selected>${fmtDate(cal.exact.at)} · ${esc((cal.exact.lens && cal.exact.lens.model) || "렌즈 미기재")}</option></select></div>`
+      : cal.exactId
+      ? `<div class="field"><label>보정 세션</label><div class="hint" style="color:var(--warn)">h5에 calib_id(${esc(cal.exactId.slice(0, 8))}…)가 있지만 Ledger에 그 세션이 없습니다 — 보정없음으로 등록됩니다</div></div>`
+      : cal.mixed
+      ? `<div class="field"><label>보정 세션</label><div class="hint" style="color:var(--warn)">이 그룹 안에 서로 다른 calib_id가 ${cal.mixed.length}개 섞여 있어 일괄 지정할 수 없습니다 — 보정없음으로 등록됩니다</div></div>`
+      : cal.list.length
+      ? `<div class="field"><label>보정 세션 (λ·시각으로 <b>추정</b> — 직접 확인 필요)</label>
+           <select class="grpCalib"><option value="">— 보정없음으로 등록 —</option>
+             ${cal.list.map(c => `<option value="${esc(c.id)}">${fmtDate(c.at)} · ${esc((c.lens && c.lens.model) || "렌즈 미기재")} · C=${c.coefficient ?? "?"}</option>`).join("")}
+           </select></div>`
+      : `<div class="field"><label>보정 세션</label><div class="hint">h5에 calib_id가 없고 λ로 맞는 세션도 없습니다 — "보정없음"으로 등록됩니다(의도된 동작)</div></div>`;
+
     return `
     <div class="wizgroup" data-grp="${i}">
       <div class="rowbar" style="margin-bottom:8px">
         <label style="display:flex;align-items:center;gap:6px;font-weight:600">
           <input type="checkbox" class="grpInclude" style="width:auto"> 이 그룹 등록
         </label>
-        <span class="hint">${fmtDateTime(g.startMs)} ~ ${fmtDateTime(g.endMs)} · h5 ${g.files.length}개</span>
+        <span class="hint">${fmtDateTime(g.startMs)} ~ ${fmtDateTime(g.endMs)} · h5 ${g.files.length}개 · ${hw}</span>
       </div>
       <div class="grid-form">
-        <div class="field"><label>측정종류${measKnown ? "" : " (파일명에서 인식 못함 — 직접 선택)"}</label>
+        <div class="field"><label>측정종류 ${g.measId ? gu("(h5에서 읽음)") : "(인식 못함 — 직접 선택)"}</label>
           <select class="grpMeas">
             <option value="">— 선택 —</option>
             ${state.presets.meas.map(m => `<option value="${esc(m.measId)}"${m.measId === g.measId ? " selected" : ""}>${esc(m.label)}</option>`).join("")}
           </select></div>
-        <div class="field"><label>Lot</label>
-          <select class="grpLot"><option value="">— 선택 —</option>${state.lots.map(l => `<option value="${esc(l.id)}">${esc(lotLabel(l))}</option>`).join("")}</select></div>
-        <div class="field"><label>시편 (선택)</label><input type="text" class="grpSpecimen" placeholder="예: A-1"></div>
-        <div class="field"><label>여기 구성</label>
-          <select class="grpEx"><option value="">— 선택 —</option>${state.presets.ex.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
-        <div class="field"><label>검출 채널</label>
-          <select class="grpEm"><option value="">— 선택 —</option>${state.presets.em.map(x => `<option value="${esc(x.id)}">${esc(x.label)}</option>`).join("")}</select></div>
+        <div class="field"><label>Lot ${g.lotGuess ? gu("(파일명에서 추정)") : (g.freeTokens.length ? "(파일명과 일치하는 lot 없음)" : "")}</label>
+          <select class="grpLot"><option value="">— 선택 —</option>${state.lots.map(l => `<option value="${esc(l.id)}"${l.id === g.lotGuess ? " selected" : ""}>${esc(lotLabel(l))}</option>`).join("")}</select></div>
+        <div class="field"><label>시편 ${g.specimenGuess ? gu("(파일명에서 추정)") : "(선택)"}</label>
+          <input type="text" class="grpSpecimen" placeholder="예: A-1" value="${esc(g.specimenGuess || "")}"></div>
+        <div class="field"><label>여기 구성 ${suggestedEx ? gu("(λ로 추정)") : ""}</label>
+          <select class="grpEx"><option value="">— 선택 —</option>${state.presets.ex.map(x => `<option value="${esc(x.id)}"${x.id === suggestedEx ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select></div>
+        <div class="field"><label>검출 채널 ${suggestedEm ? gu("(검출기로 추정)") : ""}</label>
+          <select class="grpEm"><option value="">— 선택 —</option>${state.presets.em.map(x => `<option value="${esc(x.id)}"${x.id === suggestedEm ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select></div>
+        ${calHtml}
       </div>
-      <div class="hint" style="margin-top:6px">${g.files.slice(0, 3).map(f => esc(f.name)).join(", ")}${g.files.length > 3 ? ` 외 ${g.files.length - 3}개` : ""}</div>
+      <details class="wizev"><summary>판정 근거 보기 — 이 그룹의 파일 ${g.files.length}개가 h5에서 무엇으로 읽혔는지</summary>
+        <div class="wizevwrap"><table><thead><tr>
+          <th>파일(폴더 경로 포함)</th><th>h5 측정</th><th>취득 시각</th><th>λ</th><th>검출기</th><th>휠</th><th>calib_id</th><th>stage</th>
+        </tr></thead><tbody>
+        ${g.files.map(f => {
+          const mm = g.meta[f.relPath] || {};
+          const tsrc = mm.time_id ? "h5 time_id" : (f.hasTime ? "파일명 시각" : "파일명 날짜만");
+          const num = v => (v == null || !isFinite(v)) ? "—" : Number(v).toFixed(2);
+          const st = (mm.stage_x != null) ? `${num(mm.stage_x)}, ${num(mm.stage_y)}` : "—";
+          return `<tr>
+            <td class="mono">${esc(f.relPath)}</td>
+            <td>${esc(mm.measGroup || f.measId || "—")}</td>
+            <td>${fmtDateTime(effEpochOf(f, mm))} <span class="muted">(${tsrc})</span></td>
+            <td>${mm.lambda_ex_nm != null ? esc(String(mm.lambda_ex_nm)) + (mm.lambda_src === "laser_hw" ? " (레이저 HW)" : " (attr)") : (mm.lambda_multi ? "복수 ON: " + esc(mm.lambda_multi.join("/")) : "—")}</td>
+            <td>${esc(mm.detectors ? mm.detectors.join("·") : (mm.collectors || "—"))}</td>
+            <td>${esc(mm.wheel || "—")}</td>
+            <td class="mono">${esc(mm.calib_id ? mm.calib_id.slice(0, 10) + "…" : "—")}</td>
+            <td class="mono">${esc(st)}</td>
+          </tr>`;
+        }).join("")}
+        </tbody></table></div>
+        ${g.freeTokens.length ? `<div class="hint" style="margin-top:6px">파일명에서 뽑은 자유 토큰: <span class="mono">${esc(g.freeTokens.join(" | "))}</span> — 이 토큰이 다르면 다른 그룹으로 갈라집니다.</div>` : `<div class="hint" style="margin-top:6px">파일명에 측정종류 외의 토큰이 없어 샘플을 추정할 단서가 없습니다.</div>`}
+      </details>
     </div>`;
   }).join("");
-  openOverlay("retroOverlay");
+
+  /* PHASE 10: 그룹 일괄 선택/해제. "채워진 것만"은 필수 4개(측정종류·Lot·여기·검출)가 이미
+   * 자동으로 다 채워진 그룹만 고른다 — 추정이 성공한 것만 빠르게 등록하고 나머지는 남겨두는
+   * 용도다. */
+  function updCount() {
+    const rows = $$(".wizgroup", list);
+    const n = rows.filter(r => $(".grpInclude", r).checked).length;
+    const nf = rows.reduce((a, r) => a + ($(".grpInclude", r).checked ? groups[+r.dataset.grp].files.length : 0), 0);
+    $("#retroSelCount").textContent = n ? `${n}개 그룹 · h5 ${nf}개 선택됨` : "선택된 그룹 없음";
+  }
+  function setAll(fn) { $$(".wizgroup", list).forEach(r => { $(".grpInclude", r).checked = fn(r); }); updCount(); }
+  $("#retroSelAll").onclick = () => setAll(() => true);
+  $("#retroSelNone").onclick = () => setAll(() => false);
+  $("#retroSelReady").onclick = () => setAll(r =>
+    !!($(".grpMeas", r).value && $(".grpLot", r).value && $(".grpEx", r).value && $(".grpEm", r).value));
+  $$(".grpInclude", list).forEach(c => c.onchange = updCount);
+  updCount();
   $("#retroCancel").onclick = () => closeOverlay("retroOverlay");
   $("#retroGo").onclick = () => submitRetroWizard(groups);
 }
@@ -2577,12 +3312,17 @@ async function submitRetroWizard(groups) {
     const specimen = $(".grpSpecimen", row).value.trim();
     const exId = $(".grpEx", row).value;
     const emId = $(".grpEm", row).value;
+    const calibSel = $(".grpCalib", row);
+    const calibId = calibSel ? calibSel.value : "";
+    // 확정(h5의 calib_id)인지 추정(λ·시각 매칭)인지 구분해 기록한다 — 나중에 "이 보정은
+    // 사람이 추정해 붙인 것"임을 알 수 있어야 판정의 신뢰도를 되짚을 수 있다.
+    const calibExact = !!(groups[i]._cal && groups[i]._cal.exact && groups[i]._cal.exact.id === calibId);
     if (!measId || !lotId || !exId || !emId) {
       errCount++;
       if (!firstErr) firstErr = `"${g.measId || "(미상)"} · ${fmtDate(g.startMs)}" 그룹 — 측정종류/Lot/여기구성/검출채널을 모두 선택하세요`;
       return;
     }
-    jobs.push({ g, measId, lotId, specimen, exId, emId });
+    jobs.push({ g, measId, lotId, specimen, exId, emId, calibId, calibExact });
   });
   if (errCount) { toast(firstErr + (errCount > 1 ? ` 외 ${errCount - 1}건` : ""), 5500); return; }
   if (!jobs.length) { toast("등록할 그룹을 하나 이상 선택하세요"); return; }
@@ -2599,11 +3339,18 @@ async function submitRetroWizard(groups) {
       let hashPrefix = "";
       try { const file = await f.handle.getFile(); hashPrefix = await hashPrefixOf(file); }
       catch (e) { /* 해시 실패해도 등록은 계속 진행 — T1 지문만 비게 됨 */ }
+      const mm = (j.g.meta && j.g.meta[f.relPath]) || {};
+      const stage = (mm.stage_x != null || mm.stage_y != null || mm.stage_z != null)
+        ? { x: mm.stage_x ?? null, y: mm.stage_y ?? null, z: mm.stage_z ?? null } : null;
       entries.push({
         cellId: cid, lotId: j.lotId, measTypeId: j.measId, exPresetId: j.exId, emPresetId: j.emId,
         specimen: j.specimen,
+        calibId: j.calibId || "",
+        // 추정으로 붙인 보정은 "linked"라고 단정하지 않고 별도 상태로 남긴다(§4 항목1의 낙인 원칙).
+        calibStatus: j.calibId ? (j.calibExact ? "linked" : "guessed") : "none",
+        stage,
         file: { name: f.name, bytes: f.bytes, mtime: f.mtimeMs, hashPrefix, relPath: f.relPath },
-        acquiredAt: f.epochMs,
+        acquiredAt: effEpochOf(f, mm),
       });
     }
   }
@@ -2611,7 +3358,9 @@ async function submitRetroWizard(groups) {
     if (progressEl) progressEl.textContent = "저장 중…";
     const { cellsCreated, runsCreated } = await Sync.retroRegisterRuns(entries);
     closeOverlay("retroOverlay");
-    toast(`소급 등록 완료 — 셀 ${cellsCreated}개 생성, Run ${runsCreated}개 등록(모두 "보정없음"·"마운트 미지정"으로 표시됩니다)`, 6000);
+    const nCal = entries.filter(e => e.calibId).length;
+    toast(`소급 등록 완료 — 셀 ${cellsCreated}개 생성, Run ${runsCreated}개 등록` +
+      (nCal ? ` (보정 연결 ${nCal}개, 나머지는 "보정없음")` : ` (모두 "보정없음"·"마운트 미지정")`), 6000);
   } catch (e) { toast("등록 실패: " + (e.message || e), 5000); }
 }
 
